@@ -20,6 +20,7 @@ struct ContentView: View {
         var id: String { rawValue }
     }
     @State private var activePicker: PickerKind?
+    @State private var previewData: ToolpathData?
 
     var body: some View {
         NavigationStack {
@@ -59,6 +60,14 @@ struct ContentView: View {
                         .disabled(isSlicing || !isReady)
 
                         if let gcodeURL {
+                            Button {
+                                openPreview()
+                            } label: {
+                                Label("3D 프리뷰", systemImage: "cube")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+
                             ShareLink(item: gcodeURL) {
                                 Label("G-code 내보내기", systemImage: "square.and.arrow.up")
                                     .frame(maxWidth: .infinity)
@@ -80,6 +89,9 @@ struct ContentView: View {
             }
         }
         .task { initializeCore() }
+        .fullScreenCover(item: $previewData) { data in
+            GcodePreviewView(toolpaths: data)
+        }
         .sheet(item: $activePicker) { kind in
             PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in
                 select(name, for: kind)
@@ -108,6 +120,14 @@ struct ContentView: View {
             }
         }
         .disabled(!isReady || isSlicing)
+    }
+
+    private func openPreview() {
+        if let dict = OrcaSlicerCore.lastToolpaths(), let data = ToolpathData(dictionary: dict) {
+            previewData = data
+        } else {
+            status = "프리뷰 데이터가 없습니다 — 먼저 슬라이스하세요"
+        }
     }
 
     private func items(for kind: PickerKind) -> [String] {

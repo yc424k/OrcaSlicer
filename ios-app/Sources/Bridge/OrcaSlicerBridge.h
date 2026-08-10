@@ -46,6 +46,15 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)sliceTestCubeToGcodePath:(NSString *)outputPath
                            error:(NSError **)error;
 
+#pragma mark - Toolpath preview
+
+/// Toolpath vertices of the last successful slice, for the 3D preview:
+///  "positions" — float32 x,y,z per vertex (mm)
+///  "types"     — uint8 per vertex (GCodeProcessor EMoveType; 8=Travel, 10=Extrude)
+///  "roles"     — uint8 per vertex (ExtrusionRole)
+/// Returns nil when nothing has been sliced yet.
++ (nullable NSDictionary<NSString *, NSData *> *)lastToolpaths;
+
 @end
 
 NS_ASSUME_NONNULL_END

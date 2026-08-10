@@ -13,14 +13,16 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/GCode/GCodeProcessor.hpp"
 
 #include <exception>
 #include <string>
 
 using namespace Slic3r;
 
-static PresetBundle *s_bundle     = nullptr;
-static AppConfig    *s_app_config = nullptr;
+static PresetBundle         *s_bundle       = nullptr;
+static AppConfig            *s_app_config   = nullptr;
+static GCodeProcessorResult *s_last_gcode   = nullptr;
 
 static NSError *make_error(const std::string &what)
 {
@@ -68,7 +70,11 @@ static void run_print_pipeline(Model &model, const char *output_path)
     print.validate();
     print.set_status_silent();
     print.process();
-    print.export_gcode(output_path, nullptr, nullptr);
+
+    if (!s_last_gcode)
+        s_last_gcode = new GCodeProcessorResult();
+    s_last_gcode->reset();
+    print.export_gcode(output_path, s_last_gcode, nullptr);
 }
 
 @implementation OrcaSlicerCore
@@ -244,6 +250,36 @@ static void run_print_pipeline(Model &model, const char *output_path)
         if (error) *error = make_error("unknown slicer error");
     }
     return NO;
+}
+
+#pragma mark - Toolpath preview
+
++ (NSDictionary<NSString *, NSData *> *)lastToolpaths
+{
+    if (!s_last_gcode || s_last_gcode->moves.empty())
+        return nil;
+
+    const auto  &moves = s_last_gcode->moves;
+    const size_t count = moves.size();
+
+    NSMutableData *positions = [NSMutableData dataWithLength:count * 3 * sizeof(float)];
+    NSMutableData *types     = [NSMutableData dataWithLength:count];
+    NSMutableData *roles     = [NSMutableData dataWithLength:count];
+
+    float   *pos  = static_cast<float *>(positions.mutableBytes);
+    uint8_t *type = static_cast<uint8_t *>(types.mutableBytes);
+    uint8_t *role = static_cast<uint8_t *>(roles.mutableBytes);
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto &m = moves[i];
+        pos[i * 3 + 0] = m.position.x();
+        pos[i * 3 + 1] = m.position.y();
+        pos[i * 3 + 2] = m.position.z();
+        type[i]        = static_cast<uint8_t>(m.type);
+        role[i]        = static_cast<uint8_t>(m.extrusion_role);
+    }
+
+    return @{@"positions" : positions, @"types" : types, @"roles" : roles};
 }
 
 @end
