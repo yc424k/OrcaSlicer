@@ -1,48 +1,6 @@
 import SwiftUI
 import SceneKit
 
-/// G-code toolpath preview: extrusion moves as colored line segments with a
-/// layer-range slider, rendered by SceneKit (Metal-backed) with orbit controls.
-struct GcodePreviewView: View {
-    let toolpaths: ToolpathData
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var layerLimit: Double = 1.0
-    @State private var showTravels = false
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                SceneKitToolpathView(
-                    toolpaths: toolpaths,
-                    maxZ: toolpaths.zForLayerFraction(layerLimit),
-                    showTravels: showTravels
-                )
-                .ignoresSafeArea(edges: .bottom)
-
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("레이어")
-                        Slider(value: $layerLimit, in: 0.01...1.0)
-                        Text("\(toolpaths.layerIndex(for: layerLimit) + 1)/\(toolpaths.layerCount)")
-                            .monospacedDigit()
-                    }
-                    Toggle("이동 경로 표시", isOn: $showTravels)
-                }
-                .padding()
-                .background(.bar)
-            }
-            .navigationTitle("G-code 프리뷰")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 /// Decoded toolpath buffers from the bridge.
 struct ToolpathData: Identifiable {
     let id = UUID()
@@ -86,7 +44,9 @@ struct ToolpathData: Identifiable {
     }
 }
 
-private struct SceneKitToolpathView: UIViewRepresentable {
+/// SceneKit viewport for G-code toolpaths: extrusion moves as line segments
+/// colored by extrusion role, clipped to a maximum layer z.
+struct SceneKitToolpathView: UIViewRepresentable {
     let toolpaths: ToolpathData
     let maxZ: Float
     let showTravels: Bool
