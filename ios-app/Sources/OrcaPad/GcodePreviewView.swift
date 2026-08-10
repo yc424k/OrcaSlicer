@@ -7,11 +7,25 @@ struct ToolpathData: Identifiable {
     let positions: [SIMD3<Float>]
     let types: [UInt8]
     let roles: [UInt8]
+    let extruderIds: [UInt8]
     let widths: [Float]   // extrusion width in mm (0 for travels)
     let heights: [Float]  // extrusion height in mm (0 for travels)
+    let feedrates: [Float]
+    let actualFeedrates: [Float]
+    let mm3PerMM: [Float]
+    let fanSpeeds: [Float]
+    let temperatures: [Float]
+    let accelerations: [Float]
+    let jerks: [Float]
+    let pressureAdvances: [Float]
+    let layerDurations: [Float]
     let layerZs: [Float]  // sorted unique z of extrude endpoints
 
+    static let retractType: UInt8 = 1
+    static let unretractType: UInt8 = 2
+    static let seamType: UInt8 = 3
     static let travelType: UInt8 = 8
+    static let wipeType: UInt8 = 9
     static let extrudeType: UInt8 = 10
 
     init?(dictionary: [String: Data]) {
@@ -26,12 +40,24 @@ struct ToolpathData: Identifiable {
         }
         types = [UInt8](typeData)
         roles = [UInt8](roleData)
-        widths = dictionary["widths"].map { data in
-            data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        } ?? []
-        heights = dictionary["heights"].map { data in
-            data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        } ?? []
+        extruderIds = dictionary["extruderIds"].map { [UInt8]($0) } ?? []
+
+        func floats(_ key: String) -> [Float] {
+            dictionary[key].map { data in
+                data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            } ?? []
+        }
+        widths = floats("widths")
+        heights = floats("heights")
+        feedrates = floats("feedrates")
+        actualFeedrates = floats("actualFeedrates")
+        mm3PerMM = floats("mm3PerMM")
+        fanSpeeds = floats("fanSpeeds")
+        temperatures = floats("temperatures")
+        accelerations = floats("accelerations")
+        jerks = floats("jerks")
+        pressureAdvances = floats("pressureAdvances")
+        layerDurations = floats("layerDurations")
 
         var zs = Set<Float>()
         for i in 0..<types.count where types[i] == Self.extrudeType {
@@ -39,6 +65,45 @@ struct ToolpathData: Identifiable {
         }
         layerZs = zs.sorted()
         if layerZs.isEmpty { return nil }
+    }
+
+    /// The value a range colour mode reads off vertex `i`, nil when the mode
+    /// does not apply to it.
+    func value(at i: Int, mode: PreviewViewMode) -> Float? {
+        func at(_ array: [Float]) -> Float? { i < array.count ? array[i] : nil }
+        switch mode {
+        case .speed: return at(feedrates)
+        case .actualSpeed: return at(actualFeedrates)
+        case .acceleration: return at(accelerations)
+        case .jerk: return at(jerks)
+        case .layerHeight: return at(heights)
+        case .lineWidth: return at(widths)
+        case .flow:
+            guard let mm3 = at(mm3PerMM), let speed = at(feedrates) else { return nil }
+            return mm3 * speed
+        case .actualFlow:
+            guard let mm3 = at(mm3PerMM), let speed = at(actualFeedrates) else { return nil }
+            return mm3 * speed
+        case .layerTime, .layerTimeLog: return at(layerDurations)
+        case .fanSpeed: return at(fanSpeeds)
+        case .temperature: return at(temperatures)
+        case .pressureAdvance: return at(pressureAdvances)
+        case .summary, .lineType, .filament: return nil
+        }
+    }
+
+    /// Min/max of `mode` across extrusions, for the legend's colour scale.
+    func range(for mode: PreviewViewMode) -> ClosedRange<Float>? {
+        guard mode.isRange else { return nil }
+        var low = Float.greatestFiniteMagnitude
+        var high = -Float.greatestFiniteMagnitude
+        for i in 0..<types.count where types[i] == Self.extrudeType {
+            guard let value = value(at: i, mode: mode), value > 0 || mode == .fanSpeed else { continue }
+            low = min(low, value)
+            high = max(high, value)
+        }
+        guard low <= high else { return nil }
+        return low...high
     }
 
     var layerCount: Int { layerZs.count }
@@ -70,7 +135,10 @@ struct ToolpathData: Identifiable {
 struct SceneKitToolpathView: UIViewRepresentable {
     let toolpaths: ToolpathData
     let maxLayer: Int
-    let showTravels: Bool
+    /// Legend items the user switched off.
+    let hidden: Set<LegendRow.Kind>
+    let mode: PreviewViewMode
+    let range: ClosedRange<Float>?
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -93,7 +161,9 @@ struct SceneKitToolpathView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        let key = "\(toolpaths.id)-\(showTravels)"
+        // Colours are baked into the vertex buffers, so a mode or visibility
+        // change means a rebuild; the layer slider only flips isHidden.
+        let key = "\(toolpaths.id)-\(mode.rawValue)-\(hidden.hashValue)"
         if context.coordinator.builtKey != key {
             context.coordinator.builtKey = key
             rebuild(in: view, coordinator: context.coordinator)
@@ -108,17 +178,34 @@ struct SceneKitToolpathView: UIViewRepresentable {
         var layerNodes: [SCNNode] = []
     }
 
-    // Extrusion-role palette (subset of the desktop colors).
-    private static func color(forRole role: UInt8) -> SIMD4<Float> {
-        switch role {
-        case 1: return SIMD4(1.00, 0.90, 0.30, 1) // perimeter
-        case 2: return SIMD4(1.00, 0.49, 0.22, 1) // external perimeter
-        case 3: return SIMD4(0.69, 0.19, 0.16, 1) // overhang perimeter
-        case 4: return SIMD4(0.69, 0.31, 0.16, 1) // internal infill
-        case 5, 6: return SIMD4(0.59, 0.33, 0.80, 1) // solid/top infill
-        case 10, 11: return SIMD4(0.30, 0.50, 0.73, 1) // support
-        default: return SIMD4(0.60, 0.60, 0.60, 1)
+    /// Per-extruder palette for the Filament mode, mirroring the desktop's
+    /// default filament colours.
+    private static let filamentColors: [SIMD3<Float>] = [
+        SIMD3(0.00, 0.62, 0.55), SIMD3(0.85, 0.32, 0.24), SIMD3(0.24, 0.44, 0.78),
+        SIMD3(0.92, 0.76, 0.16), SIMD3(0.55, 0.35, 0.72), SIMD3(0.36, 0.68, 0.30),
+    ]
+
+    /// Colour of the extrusion ending at vertex `i` under the current mode.
+    private func extrusionColor(at i: Int) -> SIMD3<Float> {
+        switch mode {
+        case .filament:
+            let extruder = i < toolpaths.extruderIds.count ? Int(toolpaths.extruderIds[i]) : 0
+            return Self.filamentColors[extruder % Self.filamentColors.count]
+        case .summary, .lineType:
+            return Self.rgb(OrcaPalette.role(toolpaths.roles[i]))
+        default:
+            guard let range, let value = toolpaths.value(at: i, mode: mode) else {
+                return SIMD3(0.6, 0.6, 0.6)
+            }
+            return OrcaPalette.rangeColor(value, low: range.lowerBound, high: range.upperBound,
+                                          logarithmic: mode.isLogarithmic)
         }
+    }
+
+    private static func rgb(_ color: Color) -> SIMD3<Float> {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return SIMD3(Float(r), Float(g), Float(b))
     }
 
     private func applyVisibility(coordinator: Coordinator) {
@@ -161,16 +248,42 @@ struct SceneKitToolpathView: UIViewRepresentable {
             indices[layer].append(contentsOf: [base, base + 1, base + 2, base, base + 2, base + 3])
         }
 
-        let travelColor = SIMD4<Float>(0.2, 0.8, 0.3, 1)
+        /// A small cross of two quads marking a point event (retract, seam, …).
+        func addMarker(_ p: SIMD3<Float>, color: SIMD4<Float>, layer: Int, size: Float) {
+            let dx = SIMD3<Float>(size, 0, 0), dy = SIMD3<Float>(0, size, 0)
+            let dz = SIMD3<Float>(0, 0, size)
+            addQuad(p - dx, p - dy, p + dx, p + dy, color: color, layer: layer)
+            addQuad(p - dx, p - dz, p + dx, p + dz, color: color, layer: layer)
+        }
+
+        let markerTypes: Set<UInt8> = [ToolpathData.retractType,
+                                       ToolpathData.unretractType,
+                                       ToolpathData.seamType]
 
         for i in 1..<positions.count {
             let type = toolpaths.types[i]
             let isExtrude = type == ToolpathData.extrudeType
-            let isTravel = type == ToolpathData.travelType
-            guard isExtrude || (showTravels && isTravel) else { continue }
+
+            // In the categorical modes each role is togglable; the value modes
+            // colour everything, so only the option types can be switched off.
+            if isExtrude {
+                if hidden.contains(.role(toolpaths.roles[i])) { continue }
+            } else if hidden.contains(.moveType(type)) || (!markerTypes.contains(type)
+                        && type != ToolpathData.travelType && type != ToolpathData.wipeType) {
+                continue
+            }
+
+            let b = positions[i]
+            let layer = toolpaths.layer(forZ: b.z)
+
+            if markerTypes.contains(type) {
+                let color = Self.rgb(OrcaPalette.moveType(type))
+                addMarker(b, color: SIMD4(color.x, color.y, color.z, 1),
+                          layer: layer, size: 0.32)
+                continue
+            }
 
             let a = positions[i - 1]
-            let b = positions[i]
 
             // Direction in the XY plane; z-only moves have no visible body.
             var dir = SIMD3<Float>(b.x - a.x, b.y - a.y, 0)
@@ -178,21 +291,20 @@ struct SceneKitToolpathView: UIViewRepresentable {
             guard length > 1e-5 else { continue }
             dir /= length
 
-            // Real extrusion cross-section; travels stay deliberately thin.
+            // Real extrusion cross-section; travels and wipes stay thin.
             let width = isExtrude ? max(i < toolpaths.widths.count ? toolpaths.widths[i] : 0, 0.2) : 0.16
             let height = isExtrude ? max(i < toolpaths.heights.count ? toolpaths.heights[i] : 0, 0.1) : 0.16
 
             let side = SIMD3<Float>(-dir.y, dir.x, 0) * (width / 2)
             let down = SIMD3<Float>(0, 0, -height)
-            let layer = toolpaths.layer(forZ: b.z)
-            let base = isExtrude ? Self.color(forRole: toolpaths.roles[i]) : travelColor
+            let rgb = isExtrude ? extrusionColor(at: i) : Self.rgb(OrcaPalette.moveType(type))
+            let base = SIMD4<Float>(rgb.x, rgb.y, rgb.z, 1)
 
             let aL = a + side, aR = a - side, bL = b + side, bR = b - side
             // Top face full brightness, sides darkened so the tube reads as 3D
             // without needing normals or a light rig.
-            let top = base
             let dark = SIMD4<Float>(base.x * 0.68, base.y * 0.68, base.z * 0.68, 1)
-            addQuad(aL, bL, bR, aR, color: top, layer: layer)
+            addQuad(aL, bL, bR, aR, color: base, layer: layer)
             addQuad(aL, aL + down, bL + down, bL, color: dark, layer: layer)
             addQuad(aR, bR, bR + down, aR + down, color: dark, layer: layer)
         }

@@ -163,14 +163,30 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Toolpath preview
 
-/// Toolpath vertices of the last successful slice, for the 3D preview:
-///  "positions" — float32 x,y,z per vertex (mm)
-///  "types"     — uint8 per vertex (GCodeProcessor EMoveType; 8=Travel, 10=Extrude)
-///  "roles"     — uint8 per vertex (ExtrusionRole)
-///  "widths"    — float32 extrusion width per vertex (mm, 0 for travels)
-///  "heights"   — float32 extrusion height per vertex (mm, 0 for travels)
+/// Toolpath vertices of the last successful slice, for the 3D preview. One
+/// entry per vertex, all arrays the same length:
+///  "positions"        — float32 x,y,z (mm)
+///  "types"            — uint8 (GCodeProcessor EMoveType; 8=Travel, 10=Extrude)
+///  "roles"            — uint8 (ExtrusionRole)
+///  "extruderIds"      — uint8
+///  "widths"/"heights" — float32 extrusion size (mm, 0 for travels)
+///  "times"            — float32 seconds spent on the move (normal time mode)
+///  "feedrates"        — float32 mm/s, "actualFeedrates" the post-slowdown value
+///  "mm3PerMM"         — float32; flow = mm3PerMM * feedrate
+///  "fanSpeeds" (%), "temperatures" (°C), "accelerations" (mm/s²),
+///  "jerks" (mm/s), "pressureAdvances", "layerDurations" (s) — float32
 /// Returns nil when nothing has been sliced yet.
 + (nullable NSDictionary<NSString *, NSData *> *)lastToolpaths;
+
+/// Aggregates behind the preview legend:
+///  "roles"     — [{ role, name, time (s), meters, grams }] per extrusion role
+///  "moveTypes" — [{ type, time (s), distance (mm), count }] per non-extruding
+///                move type (travel, wipe, retract, unretract, seam, …)
+///  "totalTime", "prepareTime" (s), "toolChangeTime" (s),
+///  "totalFilamentMM"/"totalFilamentG", "modelFilamentMM"/"modelFilamentG",
+///  "cost", "filamentChanges"
+/// Returns nil when nothing has been sliced yet.
++ (nullable NSDictionary<NSString *, id> *)lastPrintStatistics;
 
 @end
 

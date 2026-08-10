@@ -18,6 +18,7 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/calib.hpp"
 #include "libslic3r/CutUtils.hpp"
+#include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/Geometry.hpp"
 
@@ -1247,14 +1248,38 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
     NSMutableData *positions = [NSMutableData dataWithLength:count * 3 * sizeof(float)];
     NSMutableData *types     = [NSMutableData dataWithLength:count];
     NSMutableData *roles     = [NSMutableData dataWithLength:count];
+    NSMutableData *extruders = [NSMutableData dataWithLength:count];
     NSMutableData *widths    = [NSMutableData dataWithLength:count * sizeof(float)];
     NSMutableData *heights   = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *times     = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *feedrates = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *actuals   = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *mm3s      = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *fans      = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *temps     = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *accels    = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *jerks     = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *pas       = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *layerSecs = [NSMutableData dataWithLength:count * sizeof(float)];
 
-    float   *pos    = static_cast<float *>(positions.mutableBytes);
-    uint8_t *type   = static_cast<uint8_t *>(types.mutableBytes);
-    uint8_t *role   = static_cast<uint8_t *>(roles.mutableBytes);
-    float   *width  = static_cast<float *>(widths.mutableBytes);
-    float   *height = static_cast<float *>(heights.mutableBytes);
+    float   *pos      = static_cast<float *>(positions.mutableBytes);
+    uint8_t *type     = static_cast<uint8_t *>(types.mutableBytes);
+    uint8_t *role     = static_cast<uint8_t *>(roles.mutableBytes);
+    uint8_t *extruder = static_cast<uint8_t *>(extruders.mutableBytes);
+    float   *width    = static_cast<float *>(widths.mutableBytes);
+    float   *height   = static_cast<float *>(heights.mutableBytes);
+    float   *time     = static_cast<float *>(times.mutableBytes);
+    float   *feedrate = static_cast<float *>(feedrates.mutableBytes);
+    float   *actual   = static_cast<float *>(actuals.mutableBytes);
+    float   *mm3      = static_cast<float *>(mm3s.mutableBytes);
+    float   *fan      = static_cast<float *>(fans.mutableBytes);
+    float   *temp     = static_cast<float *>(temps.mutableBytes);
+    float   *accel    = static_cast<float *>(accels.mutableBytes);
+    float   *jerk     = static_cast<float *>(jerks.mutableBytes);
+    float   *pa       = static_cast<float *>(pas.mutableBytes);
+    float   *layerSec = static_cast<float *>(layerSecs.mutableBytes);
+
+    const size_t normal = size_t(PrintEstimatedStatistics::ETimeMode::Normal);
 
     for (size_t i = 0; i < count; ++i) {
         const auto &m = moves[i];
@@ -1263,16 +1288,129 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
         pos[i * 3 + 2] = m.position.z();
         type[i]        = static_cast<uint8_t>(m.type);
         role[i]        = static_cast<uint8_t>(m.extrusion_role);
+        extruder[i]    = m.extruder_id;
         width[i]       = m.width;
         height[i]      = m.height;
+        time[i]        = m.time[normal];
+        feedrate[i]    = m.feedrate;
+        actual[i]      = m.actual_feedrate;
+        mm3[i]         = m.mm3_per_mm;
+        fan[i]         = m.fan_speed;
+        temp[i]        = m.temperature;
+        accel[i]       = m.acceleration;
+        jerk[i]        = m.jerk;
+        pa[i]          = m.pressure_advance;
+        layerSec[i]    = m.layer_duration;
     }
 
     return @{
         @"positions" : positions,
         @"types" : types,
         @"roles" : roles,
+        @"extruderIds" : extruders,
         @"widths" : widths,
         @"heights" : heights,
+        @"times" : times,
+        @"feedrates" : feedrates,
+        @"actualFeedrates" : actuals,
+        @"mm3PerMM" : mm3s,
+        @"fanSpeeds" : fans,
+        @"temperatures" : temps,
+        @"accelerations" : accels,
+        @"jerks" : jerks,
+        @"pressureAdvances" : pas,
+        @"layerDurations" : layerSecs,
+    };
+}
+
++ (NSDictionary<NSString *, id> *)lastPrintStatistics
+{
+    if (!s_last_gcode || s_last_gcode->moves.empty())
+        return nil;
+
+    const PrintEstimatedStatistics &stats  = s_last_gcode->print_statistics;
+    const size_t                    normal = size_t(PrintEstimatedStatistics::ETimeMode::Normal);
+
+    // Per-role time is not stored as a total; the desktop legend sums it off
+    // the moves the same way (GCodeViewer.cpp).
+    std::map<ExtrusionRole, float> role_times;
+    // Non-extruding move types get time, travelled distance and a count, which
+    // is what the legend shows for Travel/Wipe/Retract/Unretract/Seams.
+    std::map<EMoveType, std::array<double, 3>> move_stats;
+
+    for (const auto &m : s_last_gcode->moves) {
+        const float t = m.time[normal];
+        if (m.type == EMoveType::Extrude)
+            role_times[m.extrusion_role] += t;
+        auto &entry = move_stats[m.type];
+        entry[0] += t;
+        entry[1] += std::abs(m.feedrate) * t;
+        entry[2] += 1.;
+    }
+
+    NSMutableArray *roles = [NSMutableArray array];
+    for (const auto &entry : role_times) {
+        const auto  used = stats.used_filaments_per_role.find(entry.first);
+        const double meters = used == stats.used_filaments_per_role.end() ? 0. : used->second.first;
+        const double grams  = used == stats.used_filaments_per_role.end() ? 0. : used->second.second;
+        [roles addObject:@{
+            @"role" : @(static_cast<int>(entry.first)),
+            @"name" : @(ExtrusionEntity::role_to_string(entry.first).c_str()),
+            @"time" : @(entry.second),
+            @"meters" : @(meters),
+            @"grams" : @(grams),
+        }];
+    }
+
+    NSMutableArray *moveTypes = [NSMutableArray array];
+    for (const auto &entry : move_stats) {
+        if (entry.first == EMoveType::Extrude || entry.first == EMoveType::Noop)
+            continue;
+        [moveTypes addObject:@{
+            @"type" : @(static_cast<int>(entry.first)),
+            @"time" : @(entry.second[0]),
+            @"distance" : @(entry.second[1]),
+            @"count" : @(static_cast<int>(entry.second[2])),
+        }];
+    }
+
+    auto used_filament = [&](double volume_mm3, size_t extruder) {
+        const double diameter = extruder < s_last_gcode->filament_diameters.size()
+                                    ? s_last_gcode->filament_diameters[extruder] : 1.75;
+        const double density  = extruder < s_last_gcode->filament_densities.size()
+                                    ? s_last_gcode->filament_densities[extruder] : 1.24;
+        const double area     = M_PI * diameter * diameter / 4.;
+        return std::make_pair(area > 0. ? volume_mm3 / area : 0., volume_mm3 * density / 1000.);
+    };
+
+    double total_mm = 0., total_g = 0., model_mm = 0., model_g = 0., cost = 0.;
+    for (const auto &entry : stats.total_volumes_per_extruder) {
+        const auto used = used_filament(entry.second, entry.first);
+        total_mm += used.first;
+        total_g  += used.second;
+        const double price = entry.first < s_last_gcode->filament_costs.size()
+                                 ? s_last_gcode->filament_costs[entry.first] : 0.;
+        cost += used.second * price / 1000.; // cost is per kg
+    }
+    for (const auto &entry : stats.model_volumes_per_extruder) {
+        const auto used = used_filament(entry.second, entry.first);
+        model_mm += used.first;
+        model_g  += used.second;
+    }
+
+    const auto &mode = stats.modes[normal];
+    return @{
+        @"roles" : roles,
+        @"moveTypes" : moveTypes,
+        @"totalTime" : @(mode.time),
+        @"prepareTime" : @(mode.prepare_time),
+        @"totalFilamentMM" : @(total_mm),
+        @"totalFilamentG" : @(total_g),
+        @"modelFilamentMM" : @(model_mm),
+        @"modelFilamentG" : @(model_g),
+        @"cost" : @(cost),
+        @"filamentChanges" : @(stats.total_filament_changes),
+        @"toolChangeTime" : @(stats.total_tool_change_time),
     };
 }
 

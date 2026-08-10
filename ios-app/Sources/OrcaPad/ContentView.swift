@@ -43,7 +43,13 @@ struct ContentView: View {
     @State private var gcodeURL: URL?
     @State private var previewData: ToolpathData?
     @State private var layerFraction = 1.0
-    @State private var showTravels = false
+    @State private var previewStats: PreviewStatistics?
+    @State private var previewMode = PreviewViewMode.lineType
+    /// Desktop starts with travels, wipes and retractions off and seams on.
+    @State private var hiddenLegendRows: Set<LegendRow.Kind> = [
+        .moveType(ToolpathData.travelType), .moveType(ToolpathData.wipeType),
+        .moveType(ToolpathData.retractType), .moveType(ToolpathData.unretractType),
+    ]
     @State private var sliceProgress = -1
     @State private var showUpload = false
     @State private var bedSize = CGSize.zero
@@ -87,6 +93,18 @@ struct ContentView: View {
                     }
                     viewport
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // The desktop keeps its preview legend on the right.
+                    if centerMode == .preview, previewData != nil {
+                        Divider()
+                        PreviewLegendPanel(mode: $previewMode,
+                                           hidden: $hiddenLegendRows,
+                                           statistics: previewStats,
+                                           range: previewRange,
+                                           presetSummary: presetSummary)
+                            .frame(width: 400)
+                            .transition(.move(edge: .trailing))
+                    }
                 }
             }
 
@@ -422,7 +440,9 @@ struct ContentView: View {
                     SceneKitToolpathView(
                         toolpaths: previewData,
                         maxLayer: previewData.layerIndex(for: layerFraction),
-                        showTravels: showTravels
+                        hidden: hiddenLegendRows,
+                        mode: previewMode,
+                        range: previewRange
                     )
                 } else {
                     Text("슬라이스하면 프리뷰가 표시됩니다").foregroundStyle(.secondary)
@@ -506,24 +526,19 @@ struct ContentView: View {
                     .padding(.trailing, 10)
                 }
 
-                VStack {
-                    Spacer()
-                    Button {
-                        showTravels.toggle()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: showTravels ? "checkmark.square.fill" : "square")
-                            Text("이동 경로")
-                        }
-                        .font(.callout)
-                    }
-                    .buttonStyle(.borderless)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.bottom, 14)
-                }
             }
         }
+    }
+
+    /// Value span the current colour mode maps onto the ramp.
+    private var previewRange: ClosedRange<Float>? {
+        previewData?.range(for: previewMode)
+    }
+
+    /// Preset names for the legend's Summary mode.
+    private var presetSummary: [(String, String)] {
+        [("프린터", selectedPrinter), ("노즐", nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm"),
+         ("필라멘트", selectedFilament), ("프로세스", selectedProcess)]
     }
 
     private var sceneControls: some View {
@@ -674,10 +689,12 @@ struct ContentView: View {
             do {
                 try OrcaSlicerCore.sliceScene(toGcodePath: output.path)
                 let toolpaths = OrcaSlicerCore.lastToolpaths().flatMap { ToolpathData(dictionary: $0) }
+                let stats = OrcaSlicerCore.lastPrintStatistics().flatMap { PreviewStatistics(dictionary: $0) }
                 let summary = Self.sliceSummary(stats: OrcaSlicerCore.lastSliceStats())
                 await MainActor.run {
                     gcodeURL = output
                     previewData = toolpaths
+                    previewStats = stats
                     layerFraction = 1.0
                     centerMode = toolpaths != nil ? .preview : .scene
                     status = summary
