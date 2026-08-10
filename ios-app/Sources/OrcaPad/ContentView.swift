@@ -1,9 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Desktop-slicer style layout: 3D viewport in the center, a collapsible
-/// settings sidebar on the right, and a collapsible slice/results sidebar on
-/// the left.
+/// Desktop-OrcaSlicer style layout: a top bar with the Prepare/Preview tabs
+/// and the slice button on the right, a single left sidebar with the preset
+/// cards and the parameter tree, and a wide viewport with a floating tool
+/// strip — mirroring the desktop arrangement.
 struct ContentView: View {
     // MARK: Core / preset state
     @State private var status = "프로파일 로딩 중…"
@@ -17,7 +18,7 @@ struct ContentView: View {
     @State private var selectedFilament = ""
 
     private enum PickerKind: String, Identifiable {
-        case printer = "프린터", process = "프로세스", filament = "필라멘트"
+        case printer = "프린터", filament = "필라멘트", process = "프로세스"
         var id: String { rawValue }
     }
     @State private var activePicker: PickerKind?
@@ -44,77 +45,27 @@ struct ContentView: View {
     @AppStorage("selectedFilament") private var storedFilament = ""
 
     // MARK: Layout state
-    @State private var showLeftPanel = true
-    @State private var showRightPanel = true
+    @State private var showSidebar = true
     private enum CenterMode { case scene, preview }
     @State private var centerMode: CenterMode = .scene
-    private enum LeftTab { case settings, results }
-    @State private var leftTab: LeftTab = .settings
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            topBar
+            Divider()
             HStack(spacing: 0) {
-                if showLeftPanel {
-                    leftPanel
+                if showSidebar {
+                    sidebar
                         .frame(width: 360)
                         .transition(.move(edge: .leading))
                     Divider()
                 }
-
-                centerViewport
+                viewport
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if showRightPanel {
-                    Divider()
-                    rightPanel
-                        .frame(width: 340)
-                        .transition(.move(edge: .trailing))
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: showLeftPanel)
-            .animation(.easeInOut(duration: 0.2), value: showRightPanel)
-            .navigationTitle("OrcaPad")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarLeading) {
-                    Button {
-                        showLeftPanel.toggle()
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                    }
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
-                    }
-                    .disabled(!isReady || isSlicing)
-                    Button {
-                        try? OrcaSlicerCore.addTestCubeToScene()
-                        reloadScene()
-                    } label: {
-                        Image(systemName: "plus.square")
-                    }
-                    .disabled(!isReady || isSlicing)
-                    Button {
-                        try? OrcaSlicerCore.arrangeScene()
-                        reloadScene()
-                    } label: {
-                        Image(systemName: "square.grid.2x2")
-                    }
-                    .disabled(!isReady || isSlicing || objects.isEmpty)
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Text("core \(OrcaSlicerCore.coreVersion())")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        showRightPanel.toggle()
-                    } label: {
-                        Image(systemName: "sidebar.right")
-                    }
-                }
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: showSidebar)
+        .background(Color.orcaWindow)
         .task { initializeCore() }
         .task(id: isSlicing) {
             // Poll the core's slicing progress while a slice runs.
@@ -146,10 +97,123 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Center viewport
+    // MARK: - Top bar (main tabs + slice actions, like the desktop title bar)
+
+    private var topBar: some View {
+        HStack(spacing: 14) {
+            Button {
+                showSidebar.toggle()
+            } label: {
+                Image(systemName: "sidebar.left")
+            }
+
+            Text("OrcaPad")
+                .font(.headline)
+
+            Picker("모드", selection: $centerMode) {
+                Text("준비").tag(CenterMode.scene)
+                Text("프리뷰").tag(CenterMode.preview)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+
+            Spacer()
+
+            if isSlicing {
+                ProgressView(value: Double(max(sliceProgress, 0)), total: 100)
+                    .frame(width: 120)
+                Text("\(max(sliceProgress, 0))%")
+                    .font(.callout.monospacedDigit())
+                Button("취소", role: .destructive) {
+                    OrcaSlicerCore.cancelSlicing()
+                }
+            } else {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Button {
+                    sliceScene()
+                } label: {
+                    Label("슬라이스", systemImage: "cube.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!isReady || objects.isEmpty)
+
+                Menu {
+                    Button {
+                        showUpload = true
+                    } label: {
+                        Label("프린터로 전송", systemImage: "paperplane")
+                    }
+                    if let gcodeURL {
+                        ShareLink(item: gcodeURL) {
+                            Label("G-code 내보내기", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(gcodeURL == nil)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.orcaPanel)
+    }
+
+    // MARK: - Left sidebar (preset cards + parameter tree, desktop order)
+
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                presetRow(title: "프린터", icon: "printer", value: selectedPrinter, kind: .printer)
+                presetRow(title: "필라멘트", icon: "circle.hexagongrid", value: selectedFilament, kind: .filament)
+                presetRow(title: "프로세스 (품질)", icon: "gearshape.2", value: selectedProcess, kind: .process)
+            }
+            .padding(12)
+
+            Divider()
+
+            ConfigEditorPanel(reloadToken: presetsRevision) {
+                refreshPresetLists()
+            }
+        }
+        .background(Color.orcaPanel)
+    }
+
+    private func presetRow(title: String, icon: String, value: String, kind: PickerKind) -> some View {
+        Button {
+            activePicker = kind
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(value.isEmpty ? "선택 안 됨" : value)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .disabled(!isReady || isSlicing)
+    }
+
+    // MARK: - Viewport (tool strip top-left, transform controls bottom,
+    //         vertical layer slider on the right in preview)
 
     @ViewBuilder
-    private var centerViewport: some View {
+    private var viewport: some View {
         ZStack {
             switch centerMode {
             case .scene:
@@ -163,59 +227,104 @@ struct ContentView: View {
                         showTravels: showTravels
                     )
                 } else {
-                    Text("먼저 슬라이스하세요").foregroundStyle(.secondary)
+                    Text("슬라이스하면 프리뷰가 표시됩니다").foregroundStyle(.secondary)
                 }
             }
 
-            VStack(spacing: 10) {
-                Spacer()
+            // Floating tool strip, like the desktop viewport toolbar.
+            if centerMode == .scene {
+                VStack(spacing: 14) {
+                    Button {
+                        showImporter = true
+                    } label: {
+                        Image(systemName: "folder.badge.plus")
+                    }
+                    Button {
+                        try? OrcaSlicerCore.addTestCubeToScene()
+                        reloadScene()
+                    } label: {
+                        Image(systemName: "plus.square")
+                    }
+                    Button {
+                        try? OrcaSlicerCore.arrangeScene()
+                        reloadScene()
+                    } label: {
+                        Image(systemName: "square.grid.2x2")
+                    }
+                    .disabled(objects.isEmpty)
+                    Button(role: .destructive) {
+                        OrcaSlicerCore.removeSceneObject(at: selectedObject)
+                        reloadScene()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(objects.isEmpty)
+                }
+                .font(.title3)
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(12)
+                .disabled(!isReady || isSlicing)
+            }
 
-                if centerMode == .scene {
+            // Scene transform controls at the bottom (desktop keeps these in
+            // the object manipulation gizmos; sliders are the touch stand-in).
+            if centerMode == .scene {
+                VStack {
+                    Spacer()
                     if !objects.isEmpty {
                         sceneControls
                             .padding(12)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                            .padding(.bottom, 12)
                     } else {
                         Text("왼쪽 위 도구로 모델 파일이나 테스트 큐브를 추가하세요")
                             .padding(10)
                             .background(.regularMaterial, in: Capsule())
+                            .padding(.bottom, 16)
                     }
+                }
+                .frame(maxWidth: 560)
+            }
+
+            // Vertical layer slider on the right edge, like the desktop preview.
+            if centerMode == .preview, let previewData {
+                HStack {
+                    Spacer()
+                    VStack {
+                        Text("\(previewData.layerIndex(for: layerFraction) + 1)")
+                            .font(.caption.monospacedDigit())
+                        Slider(value: $layerFraction, in: 0.01...1.0)
+                            .frame(width: 280)
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 44, height: 280)
+                        Text("\(previewData.layerCount)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.trailing, 10)
                 }
 
-                // The slice bar lives at the bottom center of the viewport,
-                // like the desktop slicer's slice button.
-                HStack(spacing: 12) {
-                    if isSlicing {
-                        ProgressView(value: Double(max(sliceProgress, 0)), total: 100)
-                            .frame(width: 140)
-                        Text("\(max(sliceProgress, 0))%")
-                            .font(.callout.monospacedDigit())
-                        Button(role: .destructive) {
-                            OrcaSlicerCore.cancelSlicing()
-                        } label: {
-                            Text("취소")
+                VStack {
+                    Spacer()
+                    Button {
+                        showTravels.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: showTravels ? "checkmark.square.fill" : "square")
+                            Text("이동 경로")
                         }
-                    } else {
-                        if !isReady { ProgressView() }
-                        Text(status)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Button {
-                            sliceScene()
-                        } label: {
-                            Label("씬 슬라이스", systemImage: "cube.fill")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!isReady || objects.isEmpty)
+                        .font(.callout)
                     }
+                    .buttonStyle(.borderless)
+                    .padding(8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 14)
                 }
-                .padding(10)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.bottom, 16)
             }
-            .frame(maxWidth: 560)
-            .padding(.horizontal)
         }
     }
 
@@ -232,18 +341,11 @@ struct ContentView: View {
                                 .font(.callout)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(object.index == selectedObject ? Color.accentColor : Color(.systemGray5))
+                                .background(object.index == selectedObject ? Color.orcaAccent : Color.orcaCard)
                                 .foregroundStyle(object.index == selectedObject ? .white : .primary)
                                 .clipShape(Capsule())
                         }
                     }
-                    Button(role: .destructive) {
-                        OrcaSlicerCore.removeSceneObject(at: selectedObject)
-                        reloadScene()
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .padding(.leading, 6)
                 }
             }
 
@@ -280,138 +382,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Left panel (slice & results)
-
-    private var leftPanel: some View {
-        VStack(spacing: 0) {
-            Picker("패널", selection: $leftTab) {
-                Text("설정 편집").tag(LeftTab.settings)
-                Text("프리뷰").tag(LeftTab.results)
-            }
-            .pickerStyle(.segmented)
-            .padding([.horizontal, .top], 12)
-
-            switch leftTab {
-            case .settings:
-                ConfigEditorPanel(reloadToken: presetsRevision) {
-                    refreshPresetLists()
-                }
-            case .results:
-                resultsPanel
-            }
-        }
-        .background(Color.orcaPanel)
-    }
-
-    private var resultsPanel: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if previewData == nil {
-                    Text("슬라이스하면 결과가 여기에 표시됩니다")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
-                if previewData != nil {
-                    Picker("보기", selection: $centerMode) {
-                        Text("씬").tag(CenterMode.scene)
-                        Text("G-code").tag(CenterMode.preview)
-                    }
-                    .pickerStyle(.segmented)
-
-                    if let previewData {
-                        HStack {
-                            Text("레이어").font(.callout)
-                            Slider(value: $layerFraction, in: 0.01...1.0)
-                            Text("\(previewData.layerIndex(for: layerFraction) + 1)/\(previewData.layerCount)")
-                                .font(.callout.monospacedDigit())
-                        }
-
-                        Button {
-                            showTravels.toggle()
-                        } label: {
-                            HStack {
-                                Image(systemName: showTravels ? "checkmark.square.fill" : "square")
-                                Text("이동 경로 표시").foregroundStyle(.primary)
-                                Spacer()
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                    }
-
-                    if gcodeURL != nil {
-                        Button {
-                            showUpload = true
-                        } label: {
-                            Label("프린터로 전송", systemImage: "paperplane")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    if let gcodeURL {
-                        ShareLink(item: gcodeURL) {
-                            Label("G-code 내보내기", systemImage: "square.and.arrow.up")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orcaAccent)
-                    }
-                }
-
-                Spacer()
-            }
-            .padding()
-        }
-    }
-
-    // MARK: - Right panel (settings)
-
-    private var rightPanel: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("설정")
-                    .font(.headline)
-
-                presetRow(title: "프린터", value: selectedPrinter, kind: .printer)
-                presetRow(title: "프로세스 (품질)", value: selectedProcess, kind: .process)
-                presetRow(title: "필라멘트", value: selectedFilament, kind: .filament)
-
-                Text("개별 파라미터는 왼쪽 패널의 설정 편집에서 수정합니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-            }
-            .padding()
-        }
-        .background(Color.orcaPanel)
-    }
-
-    private func presetRow(title: String, value: String, kind: PickerKind) -> some View {
-        Button {
-            activePicker = kind
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack {
-                    Text(value.isEmpty ? "선택 안 됨" : value)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(10)
-            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
-        }
-        .disabled(!isReady || isSlicing)
-    }
-
     // MARK: - Actions
 
     private func items(for kind: PickerKind) -> [String] {
@@ -431,7 +401,6 @@ struct ContentView: View {
         refreshPresetLists()
         bedSize = OrcaSlicerCore.bedSize()
         sceneRevision += 1 // bed may have changed with the printer
-        presetsRevision += 1 // the embedded editor re-reads the new preset values
     }
 
     private func apply(positionX: Double? = nil, positionY: Double? = nil,
@@ -489,7 +458,6 @@ struct ContentView: View {
                     previewData = toolpaths
                     layerFraction = 1.0
                     centerMode = toolpaths != nil ? .preview : .scene
-                    leftTab = .results // surface the results panel
                     status = summary
                     isSlicing = false
                 }
