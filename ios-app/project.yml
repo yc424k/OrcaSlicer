@@ -21,6 +21,9 @@ targets:
       - path: ../resources/info
         type: folder
         buildPhase: resources
+      - path: ../resources/calib
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: Frameworks/OrcaCore.xcframework
         embed: false

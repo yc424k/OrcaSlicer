@@ -112,6 +112,22 @@ NS_ASSUME_NONNULL_BEGIN
 /// Slices the whole scene with the selected presets/config edits.
 + (BOOL)sliceSceneToGcodePath:(NSString *)outputPath error:(NSError **)error;
 
+#pragma mark - Calibration
+
+/// Prepares a calibration test like the desktop Calibration menu: clears the
+/// scene, loads the bundled test model, applies the mode's config overrides
+/// and arms the core's calibration G-code generation for the next slice.
+/// Modes: "temp" | "volspeed" | "retraction" | "vfa" | "pa_tower".
++ (BOOL)startCalibration:(NSString *)mode
+                   start:(double)start
+                     end:(double)end
+                    step:(double)step
+                   error:(NSError **)error;
+
+/// Korean label of the armed calibration, nil when none. Any normal scene
+/// operation (import, add cube, clear) disarms it.
++ (nullable NSString *)activeCalibration;
+
 #pragma mark - Toolpath preview
 
 /// Toolpath vertices of the last successful slice, for the 3D preview:

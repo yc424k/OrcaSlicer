@@ -15,6 +15,12 @@
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/ModelArrange.hpp"
+#include "libslic3r/calib.hpp"
+#include "libslic3r/CutUtils.hpp"
+#include "libslic3r/Flow.hpp"
+#include "libslic3r/Geometry.hpp"
+
+#include <cmath>
 
 #include <atomic>
 #include <exception>
@@ -32,6 +38,20 @@ static Model                *s_scene        = nullptr;
 static std::atomic<int>      s_progress{-1};
 static Print                *s_active_print = nullptr;
 static std::mutex            s_active_print_mutex;
+
+// Armed calibration: extra config overrides + the core's Calib_Params for the
+// next slice. Reset by any normal scene operation.
+static Calib_Params          s_calib_params;
+static DynamicPrintConfig    s_calib_overrides;
+static NSString             *s_calib_label = nil;
+
+static void reset_calibration()
+{
+    s_calib_params      = Calib_Params();
+    s_calib_params.mode = CalibMode::Calib_None;
+    s_calib_overrides   = DynamicPrintConfig();
+    s_calib_label       = nil;
+}
 
 static Model &scene()
 {
@@ -81,7 +101,11 @@ static void run_print_pipeline(Model &model, const char *output_path)
         mo->ensure_on_bed();
         print.auto_assign_extruders(mo);
     }
+    config.apply(s_calib_overrides);
+
     print.apply(model, config);
+    if (s_calib_params.mode != CalibMode::Calib_None)
+        print.set_calib_params(s_calib_params);
     print.validate();
     print.set_status_callback([](const PrintBase::SlicingStatus &st) {
         if (st.percent >= 0)
@@ -417,6 +441,7 @@ static void drop_on_bed_center(ModelObject *object)
 
 + (BOOL)addModelToSceneAtPath:(NSString *)path error:(NSError **)error
 {
+    reset_calibration();
     try {
         Model loaded;
         NSString *ext = path.pathExtension.lowercaseString;
@@ -449,6 +474,7 @@ static void drop_on_bed_center(ModelObject *object)
 
 + (BOOL)addTestCubeToScene:(NSError **)error
 {
+    reset_calibration();
     try {
         ModelObject *object = scene().add_object();
         object->name = "cube";
@@ -518,6 +544,7 @@ static void drop_on_bed_center(ModelObject *object)
 
 + (void)clearScene
 {
+    reset_calibration();
     if (s_scene) s_scene->clear_objects();
 }
 
@@ -578,6 +605,212 @@ static void drop_on_bed_center(ModelObject *object)
         if (error) *error = make_error("unknown slicer error");
     }
     return NO;
+}
+
+#pragma mark - Calibration
+
+// Loads a bundled calibration model as the sole scene object.
+static ModelObject *load_calib_model(const char *relative_path)
+{
+    scene().clear_objects();
+    Model loaded = Model::read_from_file(resources_dir() + relative_path);
+    if (loaded.objects.empty())
+        throw std::runtime_error("calibration model is empty");
+    ModelObject *added = scene().add_object(*loaded.objects.front());
+    if (added->instances.empty())
+        added->add_instance();
+    return added;
+}
+
+// Horizontal plane cut, mirroring the desktop Plater::cut_horizontal; returns
+// the replacement object (the cut's results are copied into the scene while
+// the Cut still owns the originals).
+static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
+{
+    const Vec3d offset = object->instances.front()->get_offset();
+    Cut cut(object, 0, Geometry::translation_transform(z * Vec3d::UnitZ() - offset),
+            keep_lower ? ModelObjectCutAttribute::KeepLower : ModelObjectCutAttribute::KeepUpper);
+    const ModelObjectPtrs &pieces = cut.perform_with_plane();
+    if (pieces.empty())
+        return object;
+    Model &model = scene();
+    for (size_t i = 0; i < model.objects.size(); ++i)
+        if (model.objects[i] == object) {
+            model.delete_object(i);
+            break;
+        }
+    return model.add_object(*pieces.front());
+}
+
++ (BOOL)startCalibration:(NSString *)mode
+                   start:(double)start
+                     end:(double)end
+                    step:(double)step
+                   error:(NSError **)error
+{
+    try {
+        reset_calibration();
+        DynamicPrintConfig config = current_config();
+        const auto *nozzle_opt = config.option<ConfigOptionFloats>("nozzle_diameter");
+        const double nozzle = (nozzle_opt && !nozzle_opt->values.empty()) ? nozzle_opt->values.front() : 0.4;
+
+        Calib_Params params;
+        params.start = start;
+        params.end   = end;
+        params.step  = step;
+
+        if ([mode isEqualToString:@"temp"]) {
+            // Desktop Plater::calib_temp (no nozzle-based resize).
+            params.mode = CalibMode::Calib_Temp_Tower;
+            params.step = -std::abs(step); // blocks go hot (bottom) -> cold (top)
+            ModelObject *obj = load_calib_model("/calib/temperature_tower/temperature_tower.drc");
+            auto bb = obj->bounding_box_exact();
+            long blocks = lround((500. - end) / 5. + 1);
+            if (blocks > 0 && blocks * 10. - EPSILON < bb.size().z())
+                obj = calib_cut(obj, blocks * 10. - EPSILON, true);
+            bb = obj->bounding_box_exact();
+            blocks = lround((500. - start) / 5.);
+            if (blocks > 0 && blocks * 10. + EPSILON < bb.size().z())
+                obj = calib_cut(obj, blocks * 10. + EPSILON, false);
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+            obj->config.set_key_value("brim_width", new ConfigOptionFloat(5.0));
+            obj->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+            obj->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            obj->config.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            const int start_temp = int(lround(start));
+            s_calib_overrides.set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, start_temp));
+            s_calib_overrides.set_key_value("nozzle_temperature", new ConfigOptionInts(1, start_temp));
+            drop_on_bed_center(obj);
+            s_calib_label = @"온도 타워";
+        } else if ([mode isEqualToString:@"volspeed"]) {
+            // Desktop Plater::calib_max_vol_speed.
+            params.mode = CalibMode::Calib_Vol_speed_Tower;
+            ModelObject *obj = load_calib_model("/calib/volumetric_speed/SpeedTestStructure.drc");
+            const auto *bed = config.option<ConfigOptionPoints>("printable_area");
+            if (bed && bed->values.size() >= 3) {
+                BoundingBoxf bed_ext;
+                for (const Vec2d &p : bed->values) bed_ext.merge(p);
+                const double scale = (bed_ext.size().x() - 10.) / obj->bounding_box_exact().size().x();
+                if (scale < 1.0) obj->scale(scale, 1., 1.);
+            }
+            const double line_width   = nozzle * 1.75;
+            const double layer_height = nozzle * 0.8;
+            obj->config.set_key_value("enable_overhang_speed", new ConfigOptionBoolsNullable(1, false));
+            obj->config.set_key_value("wall_loops", new ConfigOptionInt(1));
+            obj->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            obj->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            obj->config.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+            obj->config.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            obj->config.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
+            obj->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterAndInner));
+            obj->config.set_key_value("brim_width", new ConfigOptionFloat(5.0));
+            obj->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+            obj->config.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            const auto *cur_vol = config.option<ConfigOptionFloats>("filament_max_volumetric_speed");
+            const double vol = std::max(cur_vol && !cur_vol->values.empty() ? cur_vol->values.front() : 0., 200.);
+            s_calib_overrides.set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats(1, vol));
+            s_calib_overrides.set_key_value("slow_down_layer_time", new ConfigOptionFloats(1, 0.));
+            s_calib_overrides.set_key_value("spiral_mode", new ConfigOptionBool(true));
+            s_calib_overrides.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+            s_calib_overrides.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            const double height = (end - start + 1.) / step;
+            if (height < obj->bounding_box_exact().size().z())
+                obj = calib_cut(obj, height, true);
+            const auto *flow_ratio = config.option<ConfigOptionFloatsNullable>("filament_flow_ratio");
+            const double mm3 = Flow(float(line_width), float(layer_height), float(nozzle)).mm3_per_mm() *
+                               (flow_ratio && !flow_ratio->values.empty() ? flow_ratio->get_at(0) : 1.0);
+            params.start = start / mm3;
+            params.end   = end / mm3;
+            params.step  = step / mm3;
+            drop_on_bed_center(obj);
+            s_calib_label = @"최대 체적 속도";
+        } else if ([mode isEqualToString:@"retraction"]) {
+            // Desktop Plater::calib_retraction.
+            params.mode = CalibMode::Calib_Retraction_tower;
+            ModelObject *obj = load_calib_model("/calib/retraction/retraction_tower.drc");
+            const double layer_height = nozzle <= 0.1 ? 0.05 : (nozzle <= 0.2 ? 0.1 : 0.2);
+            s_calib_overrides.set_key_value("use_firmware_retraction", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
+            obj->config.set_key_value("wall_loops", new ConfigOptionInt(2));
+            obj->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            obj->config.set_key_value("bottom_shell_layers", new ConfigOptionInt(3));
+            obj->config.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            obj->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+            obj->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            obj->config.set_key_value("seam_position", new ConfigOptionEnum<SeamPosition>(spAligned));
+            obj->config.set_key_value("wall_sequence", new ConfigOptionEnum<WallSequence>(WallSequence::InnerOuter));
+            obj->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            obj->config.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            const double height = 1.0 + 0.4 + (end - start) / step - EPSILON;
+            if (height < obj->bounding_box_exact().size().z())
+                obj = calib_cut(obj, height, true);
+            drop_on_bed_center(obj);
+            s_calib_label = @"리트랙션 타워";
+        } else if ([mode isEqualToString:@"vfa"]) {
+            // Desktop Plater::calib_vfa (no nozzle-based resize).
+            params.mode = CalibMode::Calib_VFA_Tower;
+            params.vfa_layer_height = 0.0;
+            ModelObject *obj = load_calib_model("/calib/vfa/vfa.drc");
+            const double height = vfa_base_block_height * ((end - start) / step + 1) - EPSILON;
+            if (height < obj->bounding_box_exact().size().z())
+                obj = calib_cut(obj, height, true);
+            s_calib_overrides.set_key_value("slow_down_layer_time", new ConfigOptionFloats(1, 0.));
+            s_calib_overrides.set_key_value("enable_overhang_speed", new ConfigOptionBoolsNullable(1, false));
+            s_calib_overrides.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+            s_calib_overrides.set_key_value("wall_loops", new ConfigOptionInt(1));
+            s_calib_overrides.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            s_calib_overrides.set_key_value("bottom_shell_layers", new ConfigOptionInt(1));
+            s_calib_overrides.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            s_calib_overrides.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("spiral_mode", new ConfigOptionBool(true));
+            s_calib_overrides.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            drop_on_bed_center(obj);
+            s_calib_label = @"VFA (미세 진동)";
+        } else if ([mode isEqualToString:@"pa_tower"]) {
+            // Desktop Plater::_calib_pa_tower.
+            params.mode = CalibMode::Calib_PA_Tower;
+            ModelObject *obj = load_calib_model("/calib/pressure_advance/tower_with_seam.drc");
+            obj->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            obj->config.set_key_value("seam_position", new ConfigOptionEnum<SeamPosition>(spRear));
+            obj->config.set_key_value("wall_loops", new ConfigOptionInt(2));
+            obj->config.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            obj->config.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
+            obj->config.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btEar));
+            obj->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.));
+            obj->config.set_key_value("brim_ears_max_angle", new ConfigOptionFloat(135.));
+            obj->config.set_key_value("brim_width", new ConfigOptionFloat(6.));
+            obj->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+            s_calib_overrides.set_key_value("slow_down_layer_time", new ConfigOptionFloats(1, 1.));
+            s_calib_overrides.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            const double height = std::ceil((end - start) / step) + 1;
+            if (height < obj->bounding_box_exact().size().z())
+                obj = calib_cut(obj, height, true);
+            drop_on_bed_center(obj);
+            s_calib_label = @"PA 타워";
+        } else {
+            throw std::runtime_error("unknown calibration mode");
+        }
+
+        s_calib_params = params;
+        return YES;
+    } catch (const std::exception &ex) {
+        reset_calibration();
+        if (error) *error = make_error(ex.what());
+    } catch (...) {
+        reset_calibration();
+        if (error) *error = make_error("unknown calibration error");
+    }
+    return NO;
+}
+
++ (NSString *)activeCalibration
+{
+    return s_calib_label;
 }
 
 #pragma mark - Slicing progress & stats

@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var activePicker: PickerKind?
     @State private var showImporter = false
     @State private var presetsRevision = 0 // reload token for the embedded editor
+    @State private var activeCalibration: CalibrationKind?
 
     // MARK: Scene state
     @State private var objects: [SceneObject] = []
@@ -85,6 +86,15 @@ struct ContentView: View {
                 select(name, for: kind)
             }
         }
+        .sheet(item: $activeCalibration) { kind in
+            CalibrationSheet(kind: kind) {
+                objects = OrcaSlicerCore.sceneObjects().compactMap { SceneObject(dictionary: $0) }
+                selectedObject = objects.first?.index ?? 0
+                sceneRevision += 1
+                centerMode = .scene
+                status = "\(kind.name) 준비됨 — 슬라이스하세요"
+            }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data, .item]) { result in
             if case let .success(url) = result {
                 importFile(at: url)
@@ -116,6 +126,17 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 220)
+
+            Menu {
+                ForEach(CalibrationKind.all) { kind in
+                    Button(kind.name) {
+                        activeCalibration = kind
+                    }
+                }
+            } label: {
+                Label("캘리브레이션", systemImage: "gauge.with.needle")
+            }
+            .disabled(!isReady || isSlicing)
 
             Spacer()
 
