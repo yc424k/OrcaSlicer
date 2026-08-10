@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var presetsRevision = 0 // reload token for the embedded editor
     @State private var activeCalibration: CalibrationKind?
     @State private var showCalibrationResult = false
+    @State private var projectURL: URL?
     @State private var nozzleDiameter = ""
     @State private var bedType = ""
     @State private var bedTypes: [(value: String, label: String)] = []
@@ -211,15 +212,32 @@ struct ContentView: View {
                     } label: {
                         Label("프린터로 전송", systemImage: "paperplane")
                     }
+                    .disabled(gcodeURL == nil)
+
                     if let gcodeURL {
                         ShareLink(item: gcodeURL) {
                             Label("G-code 내보내기", systemImage: "square.and.arrow.up")
                         }
                     }
+
+                    Divider()
+
+                    Button {
+                        saveProject()
+                    } label: {
+                        Label("프로젝트 저장 (3MF)", systemImage: "doc.badge.plus")
+                    }
+                    .disabled(objects.isEmpty)
+
+                    if let projectURL {
+                        ShareLink(item: projectURL) {
+                            Label("프로젝트 내보내기", systemImage: "square.and.arrow.up.on.square")
+                        }
+                    }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .disabled(gcodeURL == nil)
+                .disabled(!isReady)
             }
         }
         .padding(.horizontal, 14)
@@ -576,11 +594,35 @@ struct ContentView: View {
         try? FileManager.default.removeItem(at: input)
         do {
             try FileManager.default.copyItem(at: url, to: input)
+            // A 3MF may be a full project (models + settings); open it as one
+            // and fall back to plain model import when it carries no config.
+            if url.pathExtension.lowercased() == "3mf",
+               (try? OrcaSlicerCore.openProject(atPath: input.path)) != nil {
+                refreshPresetLists()
+                bedSize = OrcaSlicerCore.bedSize()
+                reloadScene()
+                status = "프로젝트 열림: \(url.lastPathComponent) — \(objects.count)개 오브젝트"
+                return
+            }
             try OrcaSlicerCore.addModelToScene(atPath: input.path)
             reloadScene()
             status = "\(url.lastPathComponent) 추가됨 — 씬에 \(objects.count)개 오브젝트"
         } catch {
             status = "가져오기 실패: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveProject() {
+        let name = objects.first.map { $0.name.replacingOccurrences(of: ".", with: "_") } ?? "project"
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).3mf")
+        try? FileManager.default.removeItem(at: output)
+        do {
+            try OrcaSlicerCore.saveProject(toPath: output.path)
+            projectURL = output
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int) ?? 0
+            status = "프로젝트 저장됨 — \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
+        } catch {
+            status = "저장 실패: \(error.localizedDescription)"
         }
     }
 
@@ -657,13 +699,7 @@ struct ContentView: View {
                     // import a model without driving the document picker.
                     if let path = UserDefaults.standard.string(forKey: "debugImportPath"),
                        FileManager.default.fileExists(atPath: path) {
-                        do {
-                            try OrcaSlicerCore.addModelToScene(atPath: path)
-                            reloadScene()
-                            status = "가져옴: \((path as NSString).lastPathComponent)"
-                        } catch {
-                            status = "가져오기 실패: \(error.localizedDescription)"
-                        }
+                        importFile(at: URL(fileURLWithPath: path))
                     }
                 }
             } catch {

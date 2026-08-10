@@ -136,7 +136,8 @@
       "min_width_top_surface",
       "reduce_crossing_wall",
       "max_travel_detour_distance",
-      "small_area_infill_flow_compensation"
+      "small_area_infill_flow_compensation",
+      "small_area_infill_flow_compensation_model"
      ]
     },
     {
@@ -602,7 +603,29 @@
       "gcode_add_line_number",
       "gcode_comments",
       "gcode_label_objects",
-      "exclude_object"
+      "exclude_object",
+      "filename_format"
+     ]
+    },
+    {
+     "title": "Change extrusion role G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "process_change_extrusion_role_gcode"
+     ]
+    },
+    {
+     "title": "Post-processing Scripts",
+     "icon": "param_gcode",
+     "keys": [
+      "post_process"
+     ]
+    },
+    {
+     "title": "Slicing Pipeline Plugin",
+     "icon": "param_gcode",
+     "keys": [
+      "slicing_pipeline_plugin"
      ]
     },
     {
@@ -610,6 +633,25 @@
      "icon": "param_gcode",
      "keys": [
       "print_plugin_config_overrides"
+     ]
+    },
+    {
+     "title": "Notes",
+     "icon": "note",
+     "keys": [
+      "notes"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Dependencies",
+   "groups": [
+    {
+     "title": "Profile dependencies",
+     "icon": "param_profile_dependencies",
+     "keys": [
+      "compatible_printers_condition"
      ]
     }
    ]
@@ -651,7 +693,8 @@
       "pressure_advance",
       "adaptive_pressure_advance",
       "adaptive_pressure_advance_overhangs",
-      "adaptive_pressure_advance_bridges"
+      "adaptive_pressure_advance_bridges",
+      "adaptive_pressure_advance_model"
      ]
     },
     {
@@ -719,6 +762,27 @@
    "title": "Advanced",
    "groups": [
     {
+     "title": "Filament start G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "filament_start_gcode"
+     ]
+    },
+    {
+     "title": "Change extrusion role G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "filament_change_extrusion_role_gcode"
+     ]
+    },
+    {
+     "title": "Filament end G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "filament_end_gcode"
+     ]
+    },
+    {
      "title": "Plugin Configuration",
      "icon": "param_gcode",
      "keys": [
@@ -778,6 +842,37 @@
      ]
     }
    ]
+  },
+  {
+   "title": "Dependencies",
+   "groups": [
+    {
+     "title": "Compatible printers",
+     "icon": "param_dependencies_printers",
+     "keys": [
+      "compatible_printers_condition"
+     ]
+    },
+    {
+     "title": "Compatible process profiles",
+     "icon": "param_dependencies_presets",
+     "keys": [
+      "compatible_prints_condition"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Notes",
+   "groups": [
+    {
+     "title": "Notes",
+     "icon": "note",
+     "keys": [
+      "filament_notes"
+     ]
+    }
+   ]
   }
  ],
  "printer": [
@@ -789,6 +884,7 @@
      "icon": "param_printable_space",
      "keys": [
       "parallel_printheads_count",
+      "bed_exclude_area",
       "printable_area",
       "printable_height",
       "support_multi_bed_types",
@@ -809,7 +905,9 @@
       "use_3mf",
       "scan_first_layer",
       "enable_power_loss_recovery",
+      "wrapping_exclude_area",
       "disable_m73",
+      "thumbnails",
       "thumbnails_format",
       "use_relative_e_distances",
       "use_firmware_retraction",
@@ -862,6 +960,221 @@
       "support_chamber_temp_control",
       "support_air_filtration",
       "cooling_filter_enabled"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Machine G-code",
+   "groups": [
+    {
+     "title": "File header G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "file_start_gcode"
+     ]
+    },
+    {
+     "title": "Machine start G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "machine_start_gcode"
+     ]
+    },
+    {
+     "title": "Machine end G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "machine_end_gcode"
+     ]
+    },
+    {
+     "title": "Printing by object G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "printing_by_object_gcode"
+     ]
+    },
+    {
+     "title": "Before layer change G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "before_layer_change_gcode"
+     ]
+    },
+    {
+     "title": "Layer change G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "layer_change_gcode"
+     ]
+    },
+    {
+     "title": "Timelapse G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "time_lapse_gcode"
+     ]
+    },
+    {
+     "title": "Clumping Detection G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "wrapping_detection_gcode"
+     ]
+    },
+    {
+     "title": "Change filament G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "change_filament_gcode"
+     ]
+    },
+    {
+     "title": "Change extrusion role G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "change_extrusion_role_gcode"
+     ]
+    },
+    {
+     "title": "Pause G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "machine_pause_gcode"
+     ]
+    },
+    {
+     "title": "Template Custom G-code",
+     "icon": "param_gcode",
+     "keys": [
+      "template_custom_gcode"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Notes",
+   "groups": [
+    {
+     "title": "Notes",
+     "icon": "note",
+     "keys": [
+      "printer_notes"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Multimaterial",
+   "groups": [
+    {
+     "title": "Single extruder multi-material setup",
+     "icon": "param_multi_material",
+     "keys": [
+      "single_extruder_multi_material",
+      "manual_filament_change",
+      "bed_temperature_formula"
+     ]
+    },
+    {
+     "title": "Wipe tower",
+     "icon": "param_tower",
+     "keys": [
+      "wipe_tower_type",
+      "purge_in_prime_tower",
+      "enable_filament_ramming",
+      "tool_change_on_wipe_tower",
+      "wait_for_temp_on_wipe_tower"
+     ]
+    },
+    {
+     "title": "Single extruder multi-material parameters",
+     "icon": "param_settings",
+     "keys": [
+      "cooling_tube_retraction",
+      "cooling_tube_length",
+      "parking_pos_retraction",
+      "extra_loading_move",
+      "high_current_on_filament_swap"
+     ]
+    },
+    {
+     "title": "Advanced",
+     "icon": "param_advanced",
+     "keys": [
+      "machine_load_filament_time",
+      "machine_unload_filament_time",
+      "machine_tool_change_time"
+     ]
+    }
+   ]
+  },
+  {
+   "title": "Extruder",
+   "groups": [
+    {
+     "title": "Basic information",
+     "icon": "param_information",
+     "keys": [
+      "nozzle_diameter",
+      "nozzle_volume_type",
+      "nozzle_volume",
+      "extruder_printable_height",
+      "extruder_printable_area"
+     ]
+    },
+    {
+     "title": "Layer height limits",
+     "icon": "param_layer_height",
+     "keys": [
+      "min_layer_height",
+      "max_layer_height"
+     ]
+    },
+    {
+     "title": "Position",
+     "icon": "param_position",
+     "keys": [
+      "extruder_offset"
+     ]
+    },
+    {
+     "title": "Retraction",
+     "icon": "param_retraction",
+     "keys": [
+      "retraction_length",
+      "retract_restart_extra",
+      "retraction_speed",
+      "deretraction_speed",
+      "retraction_minimum_travel",
+      "retract_when_changing_layer",
+      "wipe",
+      "wipe_distance",
+      "retract_before_wipe",
+      "retract_after_wipe"
+     ]
+    },
+    {
+     "title": "Z-Hop",
+     "icon": "param_extruder_lift_enforcement",
+     "keys": [
+      "retract_lift_enforce",
+      "z_hop_types",
+      "z_hop",
+      "travel_slope",
+      "retract_lift_above",
+      "retract_lift_below"
+     ]
+    },
+    {
+     "title": "Retraction when switching material",
+     "icon": "param_retraction_material_change",
+     "keys": [
+      "retract_length_toolchange",
+      "retract_restart_extra_toolchange",
+      "long_retractions_when_cut",
+      "retraction_distances_when_cut"
      ]
     }
    ]

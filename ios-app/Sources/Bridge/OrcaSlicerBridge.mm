@@ -15,6 +15,7 @@
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/ModelArrange.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/calib.hpp"
 #include "libslic3r/CutUtils.hpp"
 #include "libslic3r/Flow.hpp"
@@ -152,6 +153,9 @@ static void run_print_pipeline(Model &model, const char *output_path)
     try {
         set_resources_dir(resourcesPath.UTF8String);
         set_data_dir(dataPath.UTF8String);
+        // The 3MF exporter stages files under temporary_dir(); unset it
+        // resolves to "/", which is read-only on iOS.
+        set_temporary_dir(NSTemporaryDirectory().stringByStandardizingPath.UTF8String);
 
         auto bundle     = std::make_unique<PresetBundle>();
         auto app_config = std::make_unique<AppConfig>();
@@ -641,6 +645,67 @@ static void drop_on_bed_center(ModelObject *object)
         if (error) *error = make_error(ex.what());
     } catch (...) {
         if (error) *error = make_error("unknown slicer error");
+    }
+    return NO;
+}
+
+#pragma mark - Projects
+
++ (BOOL)saveProjectToPath:(NSString *)path error:(NSError **)error
+{
+    if (!s_scene || s_scene->objects.empty()) {
+        if (error) *error = make_error("scene is empty");
+        return NO;
+    }
+    try {
+        DynamicPrintConfig config = current_config();
+        config.apply(s_calib_overrides);
+
+        StoreParams params;
+        params.path     = path.UTF8String;
+        params.model    = s_scene;
+        params.config   = &config;
+        params.strategy = SaveStrategy::Zip64 | SaveStrategy::Silence;
+        if (!store_bbs_3mf(params))
+            throw std::runtime_error("failed to write the 3MF project");
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+    } catch (...) {
+        if (error) *error = make_error("unknown error while saving the project");
+    }
+    return NO;
+}
+
++ (BOOL)openProjectAtPath:(NSString *)path error:(NSError **)error
+{
+    reset_calibration();
+    try {
+        DynamicPrintConfig        config;
+        ConfigSubstitutionContext substitutions(ForwardCompatibilitySubstitutionRule::EnableSilent);
+        Model loaded = Model::read_from_file(path.UTF8String, &config, &substitutions,
+                                             LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                                             LoadStrategy::AddDefaultInstances);
+        if (loaded.objects.empty())
+            throw std::runtime_error("the project has no objects");
+
+        scene().clear_objects();
+        for (ModelObject *object : loaded.objects) {
+            ModelObject *added = scene().add_object(*object);
+            if (added->instances.empty())
+                added->add_instance();
+            added->ensure_on_bed();
+        }
+
+        // Projects saved by this app (and by the desktop) carry the full
+        // config; install it as the edited presets so the UI reflects it.
+        if (s_bundle && !config.empty())
+            s_bundle->load_config_model(path.lastPathComponent.UTF8String, std::move(config));
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+    } catch (...) {
+        if (error) *error = make_error("unknown error while opening the project");
     }
     return NO;
 }

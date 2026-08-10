@@ -112,6 +112,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// Slices the whole scene with the selected presets/config edits.
 + (BOOL)sliceSceneToGcodePath:(NSString *)outputPath error:(NSError **)error;
 
+#pragma mark - Projects
+
+/// Saves the scene and the current settings as a 3MF project, readable by
+/// desktop OrcaSlicer.
++ (BOOL)saveProjectToPath:(NSString *)path error:(NSError **)error;
+
+/// Loads a 3MF project: replaces the scene and, when the file carries one,
+/// applies its settings on top of the selected presets.
++ (BOOL)openProjectAtPath:(NSString *)path error:(NSError **)error;
+
 #pragma mark - Calibration
 
 /// Prepares a calibration test like the desktop Calibration menu: clears the
