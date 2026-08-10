@@ -30,6 +30,15 @@ targets:
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # Portrait-only: the three-pane layout is designed for portrait, and
+        # orientation locking on iPad requires opting out of multitasking.
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
         CFBundleDocumentTypes:
           - CFBundleTypeName: 3D Model
             LSHandlerRank: Owner
