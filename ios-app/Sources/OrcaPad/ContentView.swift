@@ -129,20 +129,6 @@ struct ContentView: View {
             switch centerMode {
             case .scene:
                 SceneKitModelView(objects: objects, selected: selectedObject, revision: sceneRevision)
-                VStack {
-                    Spacer()
-                    if !objects.isEmpty {
-                        sceneControls
-                            .padding(12)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                            .padding()
-                    } else {
-                        Text("왼쪽 위 도구로 모델 파일이나 테스트 큐브를 추가하세요")
-                            .padding(10)
-                            .background(.regularMaterial, in: Capsule())
-                            .padding(.bottom, 24)
-                    }
-                }
             case .preview:
                 if let previewData {
                     SceneKitToolpathView(
@@ -154,6 +140,46 @@ struct ContentView: View {
                     Text("먼저 슬라이스하세요").foregroundStyle(.secondary)
                 }
             }
+
+            VStack(spacing: 10) {
+                Spacer()
+
+                if centerMode == .scene {
+                    if !objects.isEmpty {
+                        sceneControls
+                            .padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    } else {
+                        Text("왼쪽 위 도구로 모델 파일이나 테스트 큐브를 추가하세요")
+                            .padding(10)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                }
+
+                // The slice bar lives at the bottom center of the viewport,
+                // like the desktop slicer's slice button.
+                HStack(spacing: 12) {
+                    if isSlicing || !isReady {
+                        ProgressView()
+                    }
+                    Text(status)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Button {
+                        sliceScene()
+                    } label: {
+                        Label("씬 슬라이스", systemImage: "cube.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isSlicing || !isReady || objects.isEmpty)
+                }
+                .padding(10)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 16)
+            }
+            .frame(maxWidth: 560)
+            .padding(.horizontal)
         }
     }
 
@@ -221,31 +247,16 @@ struct ContentView: View {
     private var leftPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("슬라이스")
+                Text("프리뷰")
                     .font(.headline)
 
-                Button {
-                    sliceScene()
-                } label: {
-                    Label("씬 슬라이스", systemImage: "cube.fill")
-                        .frame(maxWidth: .infinity)
+                if previewData == nil {
+                    Text("슬라이스하면 결과가 여기에 표시됩니다")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSlicing || !isReady || objects.isEmpty)
-
-                if isSlicing || !isReady {
-                    ProgressView().frame(maxWidth: .infinity)
-                }
-
-                Text(status)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
 
                 if previewData != nil {
-                    Divider()
-                    Text("프리뷰")
-                        .font(.headline)
-
                     Picker("보기", selection: $centerMode) {
                         Text("씬").tag(CenterMode.scene)
                         Text("G-code").tag(CenterMode.preview)
