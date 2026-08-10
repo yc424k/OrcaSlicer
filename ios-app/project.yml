@@ -80,7 +80,10 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         CLANG_CXX_LIBRARY: libc++
         # The bridge translation unit compiles against the libslic3r headers.
-        HEADER_SEARCH_PATHS:
+        # These are upstream/third-party headers we do not own, so they go in
+        # as system paths: their own warnings (OCCT's doxygen comments,
+        # libslic3r's sprintf, …) stay out of this app's build log.
+        SYSTEM_HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/../src"
           - "$(SRCROOT)/../deps_src"
           - "$(SRCROOT)/../deps_src/nanosvg"

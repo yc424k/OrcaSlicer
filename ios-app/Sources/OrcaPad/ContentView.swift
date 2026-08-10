@@ -615,7 +615,8 @@ struct ContentView: View {
     }
 
     /// "23분 · 2.1m · 6.3g" style summary of the print estimates.
-    private static func sliceSummary(stats: [String: NSNumber]?) -> String {
+    /// nonisolated: formatted on the slicing task before hopping to the main actor.
+    private nonisolated static func sliceSummary(stats: [String: NSNumber]?) -> String {
         guard let stats else { return "완료" }
         var parts: [String] = []
         if let time = stats["time"]?.doubleValue, time > 0 {
