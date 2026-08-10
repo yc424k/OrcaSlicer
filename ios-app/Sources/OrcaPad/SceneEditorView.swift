@@ -34,7 +34,12 @@ struct SceneObject: Identifiable {
 struct SceneKitModelView: UIViewRepresentable {
     let objects: [SceneObject]
     let selected: Int
+    let bedSize: CGSize
     let revision: Int
+
+    // Bed coordinates run from the origin corner to (width, depth).
+    private var bedW: CGFloat { bedSize.width > 0 ? bedSize.width : 256 }
+    private var bedD: CGFloat { bedSize.height > 0 ? bedSize.height : 256 }
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -43,19 +48,14 @@ struct SceneKitModelView: UIViewRepresentable {
         view.autoenablesDefaultLighting = true
         view.backgroundColor = .systemBackground
 
+        let center = SCNVector3(bedW / 2, bedD / 2, 0)
         let camera = SCNCamera()
         camera.zFar = 2000
         let cameraNode = SCNNode()
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(160, -160, 140)
-        cameraNode.look(at: SCNVector3(0, 0, 10), up: SCNVector3(0, 0, 1), localFront: SCNVector3(0, 0, -1))
+        cameraNode.position = SCNVector3(center.x + 170, center.y - 170, 150)
+        cameraNode.look(at: SCNVector3(center.x, center.y, 10), up: SCNVector3(0, 0, 1), localFront: SCNVector3(0, 0, -1))
         view.scene?.rootNode.addChildNode(cameraNode)
-
-        // Bed grid for orientation.
-        let bed = SCNNode(geometry: SCNPlane(width: 256, height: 256))
-        bed.geometry?.firstMaterial?.diffuse.contents = UIColor.systemGray5
-        bed.position = SCNVector3(0, 0, -0.1)
-        view.scene?.rootNode.addChildNode(bed)
 
         rebuild(in: view)
         context.coordinator.lastRevision = revision
@@ -79,6 +79,12 @@ struct SceneKitModelView: UIViewRepresentable {
         view.scene?.rootNode.childNode(withName: "objects", recursively: false)?.removeFromParentNode()
         let root = SCNNode()
         root.name = "objects"
+
+        // Bed plane matching the selected printer's printable area.
+        let bed = SCNNode(geometry: SCNPlane(width: bedW, height: bedD))
+        bed.geometry?.firstMaterial?.diffuse.contents = UIColor.systemGray5
+        bed.position = SCNVector3(bedW / 2, bedD / 2, -0.1)
+        root.addChildNode(bed)
 
         for object in objects {
             guard let mesh = OrcaSlicerCore.sceneMesh(at: object.index),

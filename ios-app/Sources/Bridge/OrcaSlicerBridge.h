@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -34,6 +35,13 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)selectProcess:(NSString *)name error:(NSError **)error;
 + (BOOL)selectFilament:(NSString *)name error:(NSError **)error;
 
+/// Saves the current (edited) settings of a tab as a user preset and selects
+/// it. The preset is written under the data dir and survives restarts.
++ (BOOL)saveCurrentPresetAs:(NSString *)name tab:(NSString *)tab;
+
+/// Printable area of the selected printer in mm (zero when unknown).
++ (CGSize)bedSize;
+
 #pragma mark - Config editing
 
 /// All editable options of one settings tab ("process" | "filament" | "printer"),
@@ -59,6 +67,18 @@ NS_ASSUME_NONNULL_BEGIN
 /// Slices a built-in 20 mm calibration cube — no input file needed.
 + (BOOL)sliceTestCubeToGcodePath:(NSString *)outputPath
                            error:(NSError **)error;
+
+/// Progress of the slicing currently running on another thread: 0–100, or -1
+/// when idle. Poll from the UI.
++ (NSInteger)slicingProgress;
+
+/// Cancels the slicing currently running on another thread; its slice call
+/// fails with a cancellation error.
++ (void)cancelSlicing;
+
+/// Statistics of the last successful slice:
+/// "time" (s), "filamentMM" (mm), "filamentG" (g). Nil before the first slice.
++ (nullable NSDictionary<NSString *, NSNumber *> *)lastSliceStats;
 
 #pragma mark - Scene editing
 

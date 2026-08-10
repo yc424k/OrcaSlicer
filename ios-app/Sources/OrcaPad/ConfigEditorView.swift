@@ -41,6 +41,8 @@ struct ConfigEditorView: View {
     @State private var options: [ConfigOption] = []
     @State private var query = ""
     @State private var revision = 0 // bumped to force rows to resync their edit buffers
+    @State private var showSaveDialog = false
+    @State private var presetName = "내 프리셋"
 
     private let tabs = [("process", "프로세스"), ("filament", "필라멘트"), ("printer", "프린터")]
 
@@ -85,6 +87,24 @@ struct ConfigEditorView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 360)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSaveDialog = true
+                    } label: {
+                        Label("프리셋 저장", systemImage: "square.and.arrow.down")
+                    }
+                }
+            }
+            .alert("현재 설정을 프리셋으로 저장", isPresented: $showSaveDialog) {
+                TextField("프리셋 이름", text: $presetName)
+                Button("저장") {
+                    if OrcaSlicerCore.saveCurrentPreset(as: presetName, tab: tab) {
+                        reload()
+                    }
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("사용자 프리셋은 다음 실행에도 유지됩니다")
             }
             .onChange(of: tab) { _ in reload() }
             .onAppear { reload() }

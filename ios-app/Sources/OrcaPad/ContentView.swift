@@ -34,6 +34,14 @@ struct ContentView: View {
     @State private var previewData: ToolpathData?
     @State private var layerFraction = 1.0
     @State private var showTravels = false
+    @State private var sliceProgress = -1
+    @State private var showUpload = false
+    @State private var bedSize = CGSize.zero
+
+    // Restored on the next launch.
+    @AppStorage("selectedPrinter") private var storedPrinter = ""
+    @AppStorage("selectedProcess") private var storedProcess = ""
+    @AppStorage("selectedFilament") private var storedFilament = ""
 
     // MARK: Layout state
     @State private var showLeftPanel = true
@@ -106,8 +114,21 @@ struct ContentView: View {
             }
         }
         .task { initializeCore() }
-        .sheet(isPresented: $showConfigEditor) {
+        .task(id: isSlicing) {
+            // Poll the core's slicing progress while a slice runs.
+            while isSlicing {
+                sliceProgress = OrcaSlicerCore.slicingProgress()
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            sliceProgress = -1
+        }
+        .sheet(isPresented: $showConfigEditor, onDismiss: { refreshPresetLists() }) {
             ConfigEditorView()
+        }
+        .sheet(isPresented: $showUpload) {
+            if let gcodeURL {
+                PrinterUploadView(gcodeURL: gcodeURL)
+            }
         }
         .sheet(item: $activePicker) { kind in
             PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in
@@ -128,7 +149,8 @@ struct ContentView: View {
         ZStack {
             switch centerMode {
             case .scene:
-                SceneKitModelView(objects: objects, selected: selectedObject, revision: sceneRevision)
+                SceneKitModelView(objects: objects, selected: selectedObject,
+                                  bedSize: bedSize, revision: sceneRevision)
             case .preview:
                 if let previewData {
                     SceneKitToolpathView(
@@ -159,20 +181,30 @@ struct ContentView: View {
                 // The slice bar lives at the bottom center of the viewport,
                 // like the desktop slicer's slice button.
                 HStack(spacing: 12) {
-                    if isSlicing || !isReady {
-                        ProgressView()
+                    if isSlicing {
+                        ProgressView(value: Double(max(sliceProgress, 0)), total: 100)
+                            .frame(width: 140)
+                        Text("\(max(sliceProgress, 0))%")
+                            .font(.callout.monospacedDigit())
+                        Button(role: .destructive) {
+                            OrcaSlicerCore.cancelSlicing()
+                        } label: {
+                            Text("취소")
+                        }
+                    } else {
+                        if !isReady { ProgressView() }
+                        Text(status)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Button {
+                            sliceScene()
+                        } label: {
+                            Label("씬 슬라이스", systemImage: "cube.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!isReady || objects.isEmpty)
                     }
-                    Text(status)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Button {
-                        sliceScene()
-                    } label: {
-                        Label("씬 슬라이스", systemImage: "cube.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isSlicing || !isReady || objects.isEmpty)
                 }
                 .padding(10)
                 .background(.regularMaterial, in: Capsule())
@@ -212,10 +244,12 @@ struct ContentView: View {
             }
 
             if let object = objects.first(where: { $0.index == selectedObject }) {
-                transformSlider("X", value: object.positionX, range: -120...120, unit: "mm") {
+                let maxX = Double(bedSize.width > 0 ? bedSize.width : 256)
+                let maxY = Double(bedSize.height > 0 ? bedSize.height : 256)
+                transformSlider("X", value: object.positionX, range: 0...maxX, unit: "mm") {
                     apply(positionX: $0)
                 }
-                transformSlider("Y", value: object.positionY, range: -120...120, unit: "mm") {
+                transformSlider("Y", value: object.positionY, range: 0...maxY, unit: "mm") {
                     apply(positionY: $0)
                 }
                 transformSlider("회전", value: object.rotationZ, range: 0...360, unit: "°") {
@@ -281,6 +315,16 @@ struct ContentView: View {
                             }
                         }
                         .buttonStyle(.borderless)
+                    }
+
+                    if gcodeURL != nil {
+                        Button {
+                            showUpload = true
+                        } label: {
+                            Label("프린터로 전송", systemImage: "paperplane")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
 
                     if let gcodeURL {
@@ -377,6 +421,8 @@ struct ContentView: View {
         case .filament: try? OrcaSlicerCore.selectFilament(name)
         }
         refreshPresetLists()
+        bedSize = OrcaSlicerCore.bedSize()
+        sceneRevision += 1 // bed may have changed with the printer
     }
 
     private func apply(positionX: Double? = nil, positionY: Double? = nil,
@@ -425,18 +471,16 @@ struct ContentView: View {
         try? FileManager.default.removeItem(at: output)
 
         Task.detached(priority: .userInitiated) {
-            let started = Date()
             do {
                 try OrcaSlicerCore.sliceScene(toGcodePath: output.path)
-                let bytes = (try? FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int) ?? 0
-                let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
                 let toolpaths = OrcaSlicerCore.lastToolpaths().flatMap { ToolpathData(dictionary: $0) }
+                let summary = Self.sliceSummary(stats: OrcaSlicerCore.lastSliceStats())
                 await MainActor.run {
                     gcodeURL = output
                     previewData = toolpaths
                     layerFraction = 1.0
                     centerMode = toolpaths != nil ? .preview : .scene
-                    status = "완료 — \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)), \(seconds)초"
+                    status = summary
                     isSlicing = false
                 }
             } catch {
@@ -446,6 +490,24 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    /// "23분 · 2.1m · 6.3g" style summary of the print estimates.
+    private static func sliceSummary(stats: [String: NSNumber]?) -> String {
+        guard let stats else { return "완료" }
+        var parts: [String] = []
+        if let time = stats["time"]?.doubleValue, time > 0 {
+            let hours = Int(time) / 3600
+            let minutes = (Int(time) % 3600 + 59) / 60
+            parts.append(hours > 0 ? "\(hours)시간 \(minutes)분" : "\(minutes)분")
+        }
+        if let mm = stats["filamentMM"]?.doubleValue, mm > 0 {
+            parts.append(String(format: "%.1fm", mm / 1000))
+        }
+        if let grams = stats["filamentG"]?.doubleValue, grams > 0 {
+            parts.append(String(format: "%.1fg", grams))
+        }
+        return parts.isEmpty ? "완료" : "완료 — " + parts.joined(separator: " · ")
     }
 
     // MARK: - Core lifecycle
@@ -460,6 +522,12 @@ struct ContentView: View {
                 await MainActor.run {
                     isReady = true
                     refreshPresetLists()
+                    // Restore last session's preset selections.
+                    if !storedPrinter.isEmpty { try? OrcaSlicerCore.selectPrinter(storedPrinter) }
+                    if !storedProcess.isEmpty { try? OrcaSlicerCore.selectProcess(storedProcess) }
+                    if !storedFilament.isEmpty { try? OrcaSlicerCore.selectFilament(storedFilament) }
+                    refreshPresetLists()
+                    bedSize = OrcaSlicerCore.bedSize()
                     reloadScene()
                     status = "준비 완료 — \(printers.count)개 프린터 프로파일"
                 }
@@ -480,6 +548,9 @@ struct ContentView: View {
         selectedPrinter = OrcaSlicerCore.selectedPrinter() ?? ""
         selectedProcess = OrcaSlicerCore.selectedProcess() ?? ""
         selectedFilament = OrcaSlicerCore.selectedFilament() ?? ""
+        storedPrinter = selectedPrinter
+        storedProcess = selectedProcess
+        storedFilament = selectedFilament
     }
 }
 

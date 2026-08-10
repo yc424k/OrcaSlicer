@@ -16,7 +16,9 @@
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/ModelArrange.hpp"
 
+#include <atomic>
 #include <exception>
+#include <mutex>
 #include <string>
 
 using namespace Slic3r;
@@ -25,6 +27,11 @@ static PresetBundle         *s_bundle       = nullptr;
 static AppConfig            *s_app_config   = nullptr;
 static GCodeProcessorResult *s_last_gcode   = nullptr;
 static Model                *s_scene        = nullptr;
+
+// Slicing runs on a background thread; the UI polls progress and may cancel.
+static std::atomic<int>      s_progress{-1};
+static Print                *s_active_print = nullptr;
+static std::mutex            s_active_print_mutex;
 
 static Model &scene()
 {
@@ -76,13 +83,33 @@ static void run_print_pipeline(Model &model, const char *output_path)
     }
     print.apply(model, config);
     print.validate();
-    print.set_status_silent();
-    print.process();
+    print.set_status_callback([](const PrintBase::SlicingStatus &st) {
+        if (st.percent >= 0)
+            s_progress = st.percent;
+    });
 
-    if (!s_last_gcode)
-        s_last_gcode = new GCodeProcessorResult();
-    s_last_gcode->reset();
-    print.export_gcode(output_path, s_last_gcode, nullptr);
+    {
+        std::lock_guard<std::mutex> lock(s_active_print_mutex);
+        s_active_print = &print;
+    }
+    s_progress = 0;
+    try {
+        print.process();
+        if (!s_last_gcode)
+            s_last_gcode = new GCodeProcessorResult();
+        s_last_gcode->reset();
+        print.export_gcode(output_path, s_last_gcode, nullptr);
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(s_active_print_mutex);
+        s_active_print = nullptr;
+        s_progress     = -1;
+        throw;
+    }
+    {
+        std::lock_guard<std::mutex> lock(s_active_print_mutex);
+        s_active_print = nullptr;
+    }
+    s_progress = -1;
 }
 
 @implementation OrcaSlicerCore
@@ -226,6 +253,32 @@ static void run_print_pipeline(Model &model, const char *output_path)
     return YES;
 }
 
++ (BOOL)saveCurrentPresetAs:(NSString *)name tab:(NSString *)tab
+{
+    PresetCollection *coll = collection_for_tab(tab);
+    if (!coll) return NO;
+    try {
+        coll->save_current_preset(name.UTF8String);
+        if ([tab isEqualToString:@"filament"])
+            s_bundle->filament_presets = {s_bundle->filaments.get_selected_preset_name()};
+        return YES;
+    } catch (const std::exception &) {
+        return NO;
+    }
+}
+
++ (CGSize)bedSize
+{
+    DynamicPrintConfig config = current_config();
+    const auto *bed = config.option<ConfigOptionPoints>("printable_area");
+    if (!bed || bed->values.size() < 3)
+        return CGSizeZero;
+    BoundingBoxf bbox;
+    for (const Vec2d &p : bed->values)
+        bbox.merge(p);
+    return CGSizeMake(bbox.size().x(), bbox.size().y());
+}
+
 #pragma mark - Config editing
 
 static PresetCollection *collection_for_tab(NSString *tab)
@@ -340,6 +393,28 @@ static NSString *ui_type_for(ConfigOptionType type)
 
 #pragma mark - Scene editing
 
+// New objects land on the bed center (Orca bed coordinates run from the
+// origin corner to printable_area's opposite corner).
+static Vec2d bed_center_mm()
+{
+    DynamicPrintConfig config = current_config();
+    const auto *bed = config.option<ConfigOptionPoints>("printable_area");
+    if (!bed || bed->values.size() < 3)
+        return Vec2d(0., 0.);
+    BoundingBoxf bbox;
+    for (const Vec2d &p : bed->values)
+        bbox.merge(p);
+    return bbox.center();
+}
+
+static void drop_on_bed_center(ModelObject *object)
+{
+    const Vec2d center = bed_center_mm();
+    for (ModelInstance *instance : object->instances)
+        instance->set_offset(Vec3d(center.x(), center.y(), instance->get_offset().z()));
+    object->ensure_on_bed();
+}
+
 + (BOOL)addModelToSceneAtPath:(NSString *)path error:(NSError **)error
 {
     try {
@@ -348,7 +423,7 @@ static NSString *ui_type_for(ConfigOptionType type)
             ModelObject *added = scene().add_object(*object);
             if (added->instances.empty())
                 added->add_instance();
-            added->ensure_on_bed();
+            drop_on_bed_center(added);
         }
         return YES;
     } catch (const std::exception &ex) {
@@ -366,7 +441,7 @@ static NSString *ui_type_for(ConfigOptionType type)
         object->name = "cube";
         object->add_volume(make_cube(20., 20., 20.));
         object->add_instance();
-        object->ensure_on_bed();
+        drop_on_bed_center(object);
         return YES;
     } catch (const std::exception &ex) {
         if (error) *error = make_error(ex.what());
@@ -456,7 +531,16 @@ static NSString *ui_type_for(ConfigOptionType type)
 {
     try {
         DynamicPrintConfig config = current_config();
-        arrange_objects(scene(), InfiniteBed{}, ArrangeParams{scaled(min_object_distance(config))});
+        ArrangeParams params{scaled(min_object_distance(config))};
+        const auto *bed = config.option<ConfigOptionPoints>("printable_area");
+        if (bed && bed->values.size() >= 3) {
+            BoundingBox bbox;
+            for (const Vec2d &p : bed->values)
+                bbox.merge(Slic3r::Point::new_scale(p.x(), p.y()));
+            arrange_objects(scene(), bbox, params);
+        } else {
+            arrange_objects(scene(), InfiniteBed{}, params);
+        }
         for (ModelObject *object : scene().objects)
             object->ensure_on_bed();
         return YES;
@@ -481,6 +565,48 @@ static NSString *ui_type_for(ConfigOptionType type)
         if (error) *error = make_error("unknown slicer error");
     }
     return NO;
+}
+
+#pragma mark - Slicing progress & stats
+
++ (NSInteger)slicingProgress
+{
+    return s_progress.load();
+}
+
++ (void)cancelSlicing
+{
+    std::lock_guard<std::mutex> lock(s_active_print_mutex);
+    if (s_active_print)
+        s_active_print->cancel();
+}
+
++ (NSDictionary<NSString *, NSNumber *> *)lastSliceStats
+{
+    if (!s_last_gcode || s_last_gcode->moves.empty())
+        return nil;
+    const PrintEstimatedStatistics &stats = s_last_gcode->print_statistics;
+
+    const float seconds =
+        stats.modes[size_t(PrintEstimatedStatistics::ETimeMode::Normal)].time;
+
+    double volume_mm3 = 0.;
+    for (const auto &entry : stats.total_volumes_per_extruder)
+        volume_mm3 += entry.second;
+
+    const double diameter = s_last_gcode->filament_diameters.empty()
+                                ? 1.75 : s_last_gcode->filament_diameters.front();
+    const double density  = s_last_gcode->filament_densities.empty()
+                                ? 1.24 : s_last_gcode->filament_densities.front();
+    const double area     = M_PI * diameter * diameter / 4.;
+    const double length   = area > 0. ? volume_mm3 / area : 0.;
+    const double grams    = volume_mm3 * density / 1000.;
+
+    return @{
+        @"time" : @(seconds),
+        @"filamentMM" : @(length),
+        @"filamentG" : @(grams),
+    };
 }
 
 #pragma mark - Toolpath preview
