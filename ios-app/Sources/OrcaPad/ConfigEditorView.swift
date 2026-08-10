@@ -46,6 +46,7 @@ struct ConfigEditorPanel: View {
     @State private var revision = 0 // bumped to force rows to resync their edit buffers
     @State private var showSaveDialog = false
     @State private var presetName = "내 프리셋"
+    @State private var expandedCategories: Set<String> = []
 
     private let tabs = [("process", "프로세스"), ("filament", "필라멘트"), ("printer", "프린터")]
 
@@ -99,10 +100,33 @@ struct ConfigEditorPanel: View {
 
             List {
                 ForEach(categories, id: \.0) { category, items in
-                    Section(category) {
-                        ForEach(items) { option in
-                            ConfigOptionRow(option: option, revision: revision) { newValue in
-                                commit(option: option, newValue: newValue)
+                    // While searching, matches are shown flat; otherwise the
+                    // categories act as a collapsible table of contents.
+                    if query.isEmpty {
+                        DisclosureGroup(isExpanded: expansionBinding(for: category)) {
+                            ForEach(items) { option in
+                                ConfigOptionRow(option: option, revision: revision) { newValue in
+                                    commit(option: option, newValue: newValue)
+                                }
+                                .listRowBackground(Color.clear)
+                            }
+                        } label: {
+                            HStack {
+                                Text(category).font(.headline)
+                                Spacer()
+                                Text("\(items.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                    } else {
+                        Section(category) {
+                            ForEach(items) { option in
+                                ConfigOptionRow(option: option, revision: revision) { newValue in
+                                    commit(option: option, newValue: newValue)
+                                }
+                                .listRowBackground(Color.clear)
                             }
                         }
                     }
@@ -127,6 +151,19 @@ struct ConfigEditorPanel: View {
         .onChange(of: tab) { _ in reload() }
         .onChange(of: reloadToken) { _ in reload() }
         .onAppear { reload() }
+    }
+
+    private func expansionBinding(for category: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedCategories.contains(category) },
+            set: { expanded in
+                if expanded {
+                    expandedCategories.insert(category)
+                } else {
+                    expandedCategories.remove(category)
+                }
+            }
+        )
     }
 
     private func reload() {
