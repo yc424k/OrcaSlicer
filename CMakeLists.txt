@@ -134,6 +134,11 @@ option(SLIC3R_ASAN              "Enable ASan on Clang and GCC" 0)
 # no CURL/OpenGL/GLFW/Python, no OCCT (STEP import) and no OpenCV (colored-OBJ
 # import). Implies SLIC3R_GUI=0.
 option(ORCA_CORE_ONLY           "Build only the libslic3r core library" 0)
+# Optional add-ons for core-only builds (both need the matching dependency in
+# the deps bundle): OCCT restores STEP/SVG import + the OCCT text tool,
+# OpenCV restores colored-OBJ quantization.
+option(ORCA_CORE_WITH_OCCT      "Core-only: enable OCCT (STEP/SVG import)" 0)
+option(ORCA_CORE_WITH_OPENCV    "Core-only: enable OpenCV (colored OBJ)" 0)
 if (ORCA_CORE_ONLY)
     set(SLIC3R_GUI 0)
 endif ()

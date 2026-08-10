@@ -134,6 +134,12 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/OpenSSL.cmake)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/../JPEG/JPEG.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../FREETYPE/FREETYPE.cmake)
+set(FREETYPE_PKG dep_FREETYPE)
+
+# STEP import (OCCT) and colored-OBJ quantization (OpenCV); their patches are
+# git-format, so the originals' git-apply --directory flags work as-is.
+include(${CMAKE_CURRENT_SOURCE_DIR}/../OCCT/OCCT.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../OpenCV/OpenCV.cmake)
 
 add_custom_target(deps ALL DEPENDS
     dep_PNG
@@ -155,4 +161,6 @@ add_custom_target(deps ALL DEPENDS
     dep_OpenSSL
     dep_JPEG
     dep_FREETYPE
+    dep_OCCT
+    dep_OpenCV
 )

@@ -140,6 +140,11 @@ struct ContentView: View {
                 importFile(at: url)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openModelURL)) { note in
+            if let url = note.object as? URL {
+                importFile(at: url)
+            }
+        }
     }
 
     // MARK: - Center viewport
@@ -530,6 +535,18 @@ struct ContentView: View {
                     bedSize = OrcaSlicerCore.bedSize()
                     reloadScene()
                     status = "준비 완료 — \(printers.count)개 프린터 프로파일"
+                    // Test hook: automated UI runs seed this defaults key to
+                    // import a model without driving the document picker.
+                    if let path = UserDefaults.standard.string(forKey: "debugImportPath"),
+                       FileManager.default.fileExists(atPath: path) {
+                        do {
+                            try OrcaSlicerCore.addModelToScene(atPath: path)
+                            reloadScene()
+                            status = "가져옴: \((path as NSString).lastPathComponent)"
+                        } catch {
+                            status = "가져오기 실패: \(error.localizedDescription)"
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {

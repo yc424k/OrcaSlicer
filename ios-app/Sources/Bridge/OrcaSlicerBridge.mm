@@ -418,7 +418,20 @@ static void drop_on_bed_center(ModelObject *object)
 + (BOOL)addModelToSceneAtPath:(NSString *)path error:(NSError **)error
 {
     try {
-        Model loaded = Model::read_from_file(path.UTF8String);
+        Model loaded;
+        NSString *ext = path.pathExtension.lowercaseString;
+        if ([ext isEqualToString:@"step"] || [ext isEqualToString:@"stp"]) {
+#ifdef ORCA_NO_OCCT
+            throw std::runtime_error("this build has no STEP support");
+#else
+            // STEP goes through the OCCT-based Step loader, not
+            // read_from_file (mirrors the desktop import path).
+            loaded = Model::read_from_step(path.UTF8String, LoadStrategy::AddDefaultInstances,
+                                           nullptr, nullptr, nullptr, 0.003, 0.5, false);
+#endif
+        } else {
+            loaded = Model::read_from_file(path.UTF8String);
+        }
         for (ModelObject *object : loaded.objects) {
             ModelObject *added = scene().add_object(*object);
             if (added->instances.empty())

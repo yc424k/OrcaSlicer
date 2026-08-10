@@ -24,11 +24,39 @@ targets:
     dependencies:
       - framework: Frameworks/OrcaCore.xcframework
         embed: false
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 3D Model
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.youblue.orcapad.stl
+              - com.youblue.orcapad.step
+              - com.youblue.orcapad.3mf
+              - com.youblue.orcapad.obj
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.youblue.orcapad.stl
+            UTTypeDescription: STL Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [stl]}
+          - UTTypeIdentifier: com.youblue.orcapad.step
+            UTTypeDescription: STEP Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [step, stp]}
+          - UTTypeIdentifier: com.youblue.orcapad.3mf
+            UTTypeDescription: 3MF Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [3mf]}
+          - UTTypeIdentifier: com.youblue.orcapad.obj
+            UTTypeDescription: OBJ Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification: {public.filename-extension: [obj]}
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         TARGETED_DEVICE_FAMILY: "2"
         SWIFT_VERSION: "5.9"
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge/OrcaPad-Bridging-Header.h
@@ -43,6 +71,8 @@ targets:
           - "$(SRCROOT)/../build/ios/src/libslic3r"
           - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include"
           - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include/eigen3"
+          - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include/opencascade"
+          - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include/opencv4"
         GCC_PREPROCESSOR_DEFINITIONS:
           - "ORCA_CORE_ONLY=1"
           - "USE_TBB=1"

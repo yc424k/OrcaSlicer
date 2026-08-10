@@ -182,7 +182,7 @@ Model::~Model()
         Slic3r::remove_backup(*this, true);
 }
 
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
 Model Model::read_from_step(const std::string&                                      input_file,
                             LoadStrategy                                            options,
                             ImportStepProgressFn                                    stepFn,
@@ -236,7 +236,7 @@ _finished:
 
     return model;
 }
-#endif // !ORCA_CORE_ONLY
+#endif // !ORCA_NO_OCCT
 
 // BBS: add part plate related logic
 // BBS: backup & restore
@@ -311,7 +311,7 @@ Model Model::read_from_file(const std::string&                                  
             }*/
         }
     }
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
     // SVG import extrudes through OCCT, which core-only builds do not carry.
     else if (boost::algorithm::iends_with(input_file, ".svg"))
         result = load_svg(input_file.c_str(), &model, message);

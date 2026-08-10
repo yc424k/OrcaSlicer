@@ -3,7 +3,7 @@
 // ORCA_CORE_ONLY builds carry no OCCT, so only the OCCT-free declarations
 // below (progress typedefs, StepPreProcessor) are available; the Step loader
 // itself is compiled out together with its GUI/CLI callers.
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
 #include "XCAFDoc_DocumentTool.hxx"
 #include "XCAFApp_Application.hxx"
 #include "XCAFDoc_ShapeTool.hxx"
@@ -30,7 +30,7 @@ const int LOAD_STEP_STAGE_UNIT_NUM           = 5;
 typedef std::function<void(int load_stage, int current, int total, bool& cancel)> ImportStepProgressFn;
 typedef std::function<void(bool isUtf8)> StepIsUtf8Fn;
 
-#ifdef ORCA_CORE_ONLY
+#ifdef ORCA_NO_OCCT
 class Step;
 #else
 struct NamedSolid
@@ -42,9 +42,9 @@ struct NamedSolid
     const std::string  name;
     int tri_face_cout = 0;
 };
-#endif // !ORCA_CORE_ONLY
+#endif // !ORCA_NO_OCCT
 
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
 //BBS: Load an step file into a provided model.
 extern bool load_step(const char *path, Model *model,
                       bool& is_cancel,
@@ -81,7 +81,7 @@ private:
     EncodedType m_encode_type = EncodedType::UTF8;
 };
 
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
 class StepProgressIncdicator : public Message_ProgressIndicator
 {
 public:
@@ -130,7 +130,7 @@ private:
     Handle(XCAFDoc_ShapeTool) m_shape_tool;
     std::vector<NamedSolid> m_name_solids;
 };
-#endif // !ORCA_CORE_ONLY
+#endif // !ORCA_NO_OCCT
 
 }; // namespace Slic3r
 

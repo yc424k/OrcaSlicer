@@ -1591,7 +1591,7 @@ public:
 
     OBJECTBASE_DERIVED_COPY_MOVE_CLONE(Model)
 
-#ifndef ORCA_CORE_ONLY
+#ifndef ORCA_NO_OCCT
     static Model read_from_step(const std::string&                                      input_file,
                                 LoadStrategy                                            options,
                                 ImportStepProgressFn                                    stepFn,

@@ -488,9 +488,9 @@ if (APPLE)
         )
 endif ()
 
-if (ORCA_CORE_ONLY)
-    # No OCCT (STEP import) and no OpenCV (colored-OBJ quantization) in
-    # core-only builds; neither has callers inside libslic3r itself.
+if (ORCA_CORE_ONLY AND NOT ORCA_CORE_WITH_OCCT)
+    # Without OCCT there is no STEP/SVG import nor the OCCT text tool; none
+    # of them has callers inside libslic3r itself.
     list(REMOVE_ITEM lisbslic3r_sources
         Format/STEP.cpp
         Format/STEP.hpp
@@ -498,6 +498,11 @@ if (ORCA_CORE_ONLY)
         Format/svg.hpp
         Shape/TextShape.cpp
         Shape/TextShape.hpp
+    )
+endif ()
+if (ORCA_CORE_ONLY AND NOT ORCA_CORE_WITH_OPENCV)
+    # Without OpenCV there is no colored-OBJ quantization.
+    list(REMOVE_ITEM lisbslic3r_sources
         ObjColorUtils.cpp
         ObjColorUtils.hpp
     )
@@ -519,7 +524,7 @@ cmake_policy(SET CMP0011 NEW)
 # can't reach it; the default opts its Boost lookup into BoostConfig (CMP0167).
 set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
 find_package(CGAL REQUIRED)
-if (NOT ORCA_CORE_ONLY)
+if (NOT ORCA_CORE_ONLY OR ORCA_CORE_WITH_OPENCV)
     find_package(OpenCV REQUIRED core)
 endif ()
 unset(CMAKE_POLICY_DEFAULT_CMP0167)
@@ -563,6 +568,9 @@ if (ORCA_CORE_ONLY)
     # PUBLIC: consumers of libslic3r headers must see the same gated view
     # (e.g. Format/STEP.hpp without its OCCT parts).
     target_compile_definitions(libslic3r PUBLIC ORCA_CORE_ONLY)
+    if (NOT ORCA_CORE_WITH_OCCT)
+        target_compile_definitions(libslic3r PUBLIC ORCA_NO_OCCT)
+    endif ()
 endif ()
 if (USE_SLIC3R_CONSOLE_LOG)
     target_compile_definitions(libslic3r PRIVATE $<$<CONFIG:RelWithDebInfo>:SLIC3R_CONSOLE_LOG>)
@@ -573,7 +581,7 @@ target_include_directories(libslic3r SYSTEM PUBLIC ${EXPAT_INCLUDE_DIRS})
 find_package(JPEG REQUIRED)
 find_package(Draco REQUIRED)
 
-if (ORCA_CORE_ONLY)
+if (ORCA_CORE_ONLY AND NOT ORCA_CORE_WITH_OCCT)
     set(OCCT_LIBS "")
 else ()
 # Find the OCCT and related libraries
@@ -611,7 +619,7 @@ set(OCCT_LIBS
 )
 endif () # NOT ORCA_CORE_ONLY
 
-if (NOT ORCA_CORE_ONLY)
+if (NOT ORCA_CORE_ONLY OR ORCA_CORE_WITH_OPENCV)
     set(_orca_opencv_libs opencv_world)
 else ()
     set(_orca_opencv_libs "")
