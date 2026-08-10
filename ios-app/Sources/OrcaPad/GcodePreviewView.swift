@@ -56,7 +56,7 @@ struct SceneKitToolpathView: UIViewRepresentable {
         view.scene = SCNScene()
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = true
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .orcaViewport
 
         let camera = SCNCamera()
         camera.zFar = 2000

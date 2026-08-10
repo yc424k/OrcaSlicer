@@ -11,6 +11,7 @@ struct OrcaPadApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .tint(.orcaAccent)
                 .onOpenURL { url in
                     NotificationCenter.default.post(name: .openModelURL, object: url)
                 }

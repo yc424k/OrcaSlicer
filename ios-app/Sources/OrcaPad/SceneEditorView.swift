@@ -46,7 +46,7 @@ struct SceneKitModelView: UIViewRepresentable {
         view.scene = SCNScene()
         view.allowsCameraControl = true
         view.autoenablesDefaultLighting = true
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .orcaViewport
 
         let center = SCNVector3(bedW / 2, bedD / 2, 0)
         let camera = SCNCamera()
@@ -82,7 +82,7 @@ struct SceneKitModelView: UIViewRepresentable {
 
         // Bed plane matching the selected printer's printable area.
         let bed = SCNNode(geometry: SCNPlane(width: bedW, height: bedD))
-        bed.geometry?.firstMaterial?.diffuse.contents = UIColor.systemGray5
+        bed.geometry?.firstMaterial?.diffuse.contents = UIColor.orcaBed
         bed.position = SCNVector3(bedW / 2, bedD / 2, -0.1)
         root.addChildNode(bed)
 

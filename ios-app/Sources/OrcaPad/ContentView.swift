@@ -338,7 +338,7 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(.green)
+                        .tint(.orcaAccent)
                     }
                 }
 
@@ -346,7 +346,7 @@ struct ContentView: View {
             }
             .padding()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.orcaPanel)
     }
 
     // MARK: - Right panel (settings)
@@ -374,7 +374,7 @@ struct ContentView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .padding(10)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .disabled(!isReady || isSlicing)
 
@@ -382,7 +382,7 @@ struct ContentView: View {
             }
             .padding()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color.orcaPanel)
     }
 
     private func presetRow(title: String, value: String, kind: PickerKind) -> some View {
@@ -404,7 +404,7 @@ struct ContentView: View {
                 }
             }
             .padding(10)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
         }
         .disabled(!isReady || isSlicing)
     }
