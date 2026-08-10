@@ -22,6 +22,8 @@ struct ContentView: View {
     @State private var activePicker: PickerKind?
     @State private var previewData: ToolpathData?
     @State private var showConfigEditor = false
+    @State private var showSceneEditor = false
+    @State private var sceneCount = 0
 
     var body: some View {
         NavigationStack {
@@ -45,6 +47,39 @@ struct ContentView: View {
                     .disabled(!isReady || isSlicing)
                 }
 
+                Section("씬 (\(sceneCount)개 오브젝트)") {
+                    VStack(spacing: 16) {
+                        Button {
+                            showImporter = true
+                        } label: {
+                            Label("모델 파일 추가 (STL/3MF/OBJ)", systemImage: "folder.badge.plus")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSlicing || !isReady)
+
+                        Button {
+                            try? OrcaSlicerCore.addTestCubeToScene()
+                            refreshScene()
+                        } label: {
+                            Label("테스트 큐브 추가", systemImage: "plus.square")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSlicing || !isReady)
+
+                        Button {
+                            showSceneEditor = true
+                        } label: {
+                            Label("씬 편집 (이동·회전·크기·배치)", systemImage: "move.3d")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSlicing || !isReady || sceneCount == 0)
+                    }
+                    .padding(.vertical, 8)
+                }
+
                 Section("슬라이스") {
                     VStack(spacing: 16) {
                         Text(status)
@@ -56,22 +91,13 @@ struct ContentView: View {
                         }
 
                         Button {
-                            showImporter = true
+                            sliceScene()
                         } label: {
-                            Label("모델 파일 선택 (STL/3MF/OBJ)", systemImage: "folder")
+                            Label("씬 슬라이스", systemImage: "cube.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isSlicing || !isReady)
-
-                        Button {
-                            sliceTestCube()
-                        } label: {
-                            Label("테스트 큐브 슬라이스", systemImage: "shippingbox")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isSlicing || !isReady)
+                        .disabled(isSlicing || !isReady || sceneCount == 0)
 
                         if let gcodeURL {
                             Button {
@@ -108,6 +134,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showConfigEditor) {
             ConfigEditorView()
+        }
+        .fullScreenCover(isPresented: $showSceneEditor, onDismiss: { refreshScene() }) {
+            SceneEditorView()
         }
         .sheet(item: $activePicker) { kind in
             PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in
@@ -197,23 +226,31 @@ struct ContentView: View {
         selectedFilament = OrcaSlicerCore.selectedFilament() ?? ""
     }
 
-    // MARK: - Slicing
+    // MARK: - Scene & slicing
+
+    private func refreshScene() {
+        sceneCount = OrcaSlicerCore.sceneObjects().count
+    }
 
     private func sliceFile(at url: URL) {
-        startSlicing(named: url.deletingPathExtension().lastPathComponent) { output in
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-            // Work on a private copy: the picked URL may point outside the sandbox.
-            let input = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.removeItem(at: input)
+        // Adds the picked file to the scene (slicing stays a separate step).
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let input = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
+        try? FileManager.default.removeItem(at: input)
+        do {
             try FileManager.default.copyItem(at: url, to: input)
-            try OrcaSlicerCore.sliceModel(atPath: input.path, toGcodePath: output.path)
+            try OrcaSlicerCore.addModelToScene(atPath: input.path)
+            refreshScene()
+            status = "\(url.lastPathComponent) 추가됨 — 씬에 \(sceneCount)개 오브젝트"
+        } catch {
+            status = "가져오기 실패: \(error.localizedDescription)"
         }
     }
 
-    private func sliceTestCube() {
-        startSlicing(named: "test_cube") { output in
-            try OrcaSlicerCore.sliceTestCube(toGcodePath: output.path)
+    private func sliceScene() {
+        startSlicing(named: "scene") { output in
+            try OrcaSlicerCore.sliceScene(toGcodePath: output.path)
         }
     }
 

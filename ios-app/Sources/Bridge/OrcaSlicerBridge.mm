@@ -14,6 +14,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/ModelArrange.hpp"
 
 #include <exception>
 #include <string>
@@ -23,6 +24,13 @@ using namespace Slic3r;
 static PresetBundle         *s_bundle       = nullptr;
 static AppConfig            *s_app_config   = nullptr;
 static GCodeProcessorResult *s_last_gcode   = nullptr;
+static Model                *s_scene        = nullptr;
+
+static Model &scene()
+{
+    if (!s_scene) s_scene = new Model();
+    return *s_scene;
+}
 
 static NSError *make_error(const std::string &what)
 {
@@ -321,6 +329,151 @@ static NSString *ui_type_for(ConfigOptionType type)
         object->add_volume(make_cube(20., 20., 20.));
         object->add_instance();
         run_print_pipeline(model, outputPath.UTF8String);
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+    } catch (...) {
+        if (error) *error = make_error("unknown slicer error");
+    }
+    return NO;
+}
+
+#pragma mark - Scene editing
+
++ (BOOL)addModelToSceneAtPath:(NSString *)path error:(NSError **)error
+{
+    try {
+        Model loaded = Model::read_from_file(path.UTF8String);
+        for (ModelObject *object : loaded.objects) {
+            ModelObject *added = scene().add_object(*object);
+            if (added->instances.empty())
+                added->add_instance();
+            added->ensure_on_bed();
+        }
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+    } catch (...) {
+        if (error) *error = make_error("unknown import error");
+    }
+    return NO;
+}
+
++ (BOOL)addTestCubeToScene:(NSError **)error
+{
+    try {
+        ModelObject *object = scene().add_object();
+        object->name = "cube";
+        object->add_volume(make_cube(20., 20., 20.));
+        object->add_instance();
+        object->ensure_on_bed();
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+        return NO;
+    }
+}
+
++ (NSArray<NSDictionary<NSString *, id> *> *)sceneObjects
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    if (!s_scene) return objects;
+    for (size_t i = 0; i < s_scene->objects.size(); ++i) {
+        const ModelObject   *object   = s_scene->objects[i];
+        const ModelInstance *instance = object->instances.empty() ? nullptr : object->instances.front();
+        const BoundingBoxf3  bbox     = object->raw_mesh_bounding_box();
+        [objects addObject:@{
+            @"index" : @(i),
+            @"name" : [NSString stringWithUTF8String:object->name.c_str()],
+            @"positionX" : @(instance ? instance->get_offset().x() : 0.0),
+            @"positionY" : @(instance ? instance->get_offset().y() : 0.0),
+            @"rotationZ" : @(instance ? instance->get_rotation().z() * 180.0 / M_PI : 0.0),
+            @"scale" : @(instance ? instance->get_scaling_factor().x() : 1.0),
+            @"sizeX" : @(bbox.size().x()),
+            @"sizeY" : @(bbox.size().y()),
+            @"sizeZ" : @(bbox.size().z()),
+        }];
+    }
+    return objects;
+}
+
++ (NSDictionary<NSString *, NSData *> *)sceneMeshAtIndex:(NSInteger)index
+{
+    if (!s_scene || index < 0 || size_t(index) >= s_scene->objects.size())
+        return nil;
+    const indexed_triangle_set its = s_scene->objects[index]->raw_mesh().its;
+
+    NSMutableData *vertices = [NSMutableData dataWithLength:its.vertices.size() * 3 * sizeof(float)];
+    float *v = static_cast<float *>(vertices.mutableBytes);
+    for (size_t i = 0; i < its.vertices.size(); ++i) {
+        v[i * 3 + 0] = its.vertices[i].x();
+        v[i * 3 + 1] = its.vertices[i].y();
+        v[i * 3 + 2] = its.vertices[i].z();
+    }
+    NSMutableData *indices = [NSMutableData dataWithLength:its.indices.size() * 3 * sizeof(uint32_t)];
+    uint32_t *ix = static_cast<uint32_t *>(indices.mutableBytes);
+    for (size_t i = 0; i < its.indices.size(); ++i) {
+        ix[i * 3 + 0] = its.indices[i][0];
+        ix[i * 3 + 1] = its.indices[i][1];
+        ix[i * 3 + 2] = its.indices[i][2];
+    }
+    return @{@"vertices" : vertices, @"indices" : indices};
+}
+
++ (BOOL)removeSceneObjectAtIndex:(NSInteger)index
+{
+    if (!s_scene || index < 0 || size_t(index) >= s_scene->objects.size())
+        return NO;
+    s_scene->delete_object(size_t(index));
+    return YES;
+}
+
++ (void)clearScene
+{
+    if (s_scene) s_scene->clear_objects();
+}
+
++ (BOOL)setSceneObjectAtIndex:(NSInteger)index
+                    positionX:(double)x
+                    positionY:(double)y
+                    rotationZ:(double)degrees
+                        scale:(double)scale
+{
+    if (!s_scene || index < 0 || size_t(index) >= s_scene->objects.size())
+        return NO;
+    ModelObject *object = s_scene->objects[index];
+    if (object->instances.empty())
+        return NO;
+    ModelInstance *instance = object->instances.front();
+    instance->set_offset(Vec3d(x, y, instance->get_offset().z()));
+    instance->set_rotation(Z, degrees * M_PI / 180.0);
+    instance->set_scaling_factor(Vec3d(scale, scale, scale));
+    object->ensure_on_bed();
+    return YES;
+}
+
++ (BOOL)arrangeScene:(NSError **)error
+{
+    try {
+        DynamicPrintConfig config = current_config();
+        arrange_objects(scene(), InfiniteBed{}, ArrangeParams{scaled(min_object_distance(config))});
+        for (ModelObject *object : scene().objects)
+            object->ensure_on_bed();
+        return YES;
+    } catch (const std::exception &ex) {
+        if (error) *error = make_error(ex.what());
+        return NO;
+    }
+}
+
++ (BOOL)sliceSceneToGcodePath:(NSString *)outputPath error:(NSError **)error
+{
+    if (!s_scene || s_scene->objects.empty()) {
+        if (error) *error = make_error("scene is empty");
+        return NO;
+    }
+    try {
+        run_print_pipeline(*s_scene, outputPath.UTF8String);
         return YES;
     } catch (const std::exception &ex) {
         if (error) *error = make_error(ex.what());

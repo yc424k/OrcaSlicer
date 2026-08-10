@@ -60,6 +60,38 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)sliceTestCubeToGcodePath:(NSString *)outputPath
                            error:(NSError **)error;
 
+#pragma mark - Scene editing
+
+/// Appends the objects of a model file (STL/3MF/OBJ) to the scene.
++ (BOOL)addModelToSceneAtPath:(NSString *)path error:(NSError **)error;
+/// Appends a built-in 20 mm calibration cube to the scene.
++ (BOOL)addTestCubeToScene:(NSError **)error;
+
+/// Scene objects as { index, name, positionX, positionY, rotationZ (deg),
+/// scale (factor), sizeX/Y/Z (mm of the raw mesh) }.
++ (NSArray<NSDictionary<NSString *, id> *> *)sceneObjects;
+/// Raw mesh of one object for rendering: { "vertices": float32 xyz per
+/// vertex, "indices": uint32 triangle indices }.
++ (nullable NSDictionary<NSString *, NSData *> *)sceneMeshAtIndex:(NSInteger)index;
+
++ (BOOL)removeSceneObjectAtIndex:(NSInteger)index;
++ (void)clearScene;
+
+/// Sets the first instance's transform (position mm, rotation degrees,
+/// uniform scale factor) and drops the object back onto the bed.
++ (BOOL)setSceneObjectAtIndex:(NSInteger)index
+                    positionX:(double)x
+                    positionY:(double)y
+                    rotationZ:(double)degrees
+                        scale:(double)scale
+    NS_SWIFT_NAME(setSceneObject(at:positionX:positionY:rotationZ:scale:));
+
+/// Auto-arranges all scene objects with the current config's spacing.
++ (BOOL)arrangeScene:(NSError **)error;
+
+/// Slices the whole scene with the selected presets/config edits.
++ (BOOL)sliceSceneToGcodePath:(NSString *)outputPath error:(NSError **)error;
+
 #pragma mark - Toolpath preview
 
 /// Toolpath vertices of the last successful slice, for the 3D preview:
