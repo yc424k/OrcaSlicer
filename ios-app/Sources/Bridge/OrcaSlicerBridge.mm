@@ -329,6 +329,62 @@ static NSString *ui_type_for(ConfigOptionType type)
     }
 }
 
+// Fills the shared option descriptor used by both the settings tabs and the
+// project-level options.
+static NSMutableDictionary *describe_option(const std::string &key,
+                                            const ConfigOptionDef *def,
+                                            const std::string &value,
+                                            const std::string &preset_value)
+{
+    NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+    entry[@"key"]      = @(key.c_str());
+    entry[@"label"]    = @(def->label.c_str());
+    entry[@"tooltip"]  = @(def->tooltip.c_str());
+    entry[@"category"] = @(def->category.empty() ? "Other" : def->category.c_str());
+    entry[@"unit"]     = @(def->sidetext.c_str());
+    entry[@"type"]     = ui_type_for(def->type);
+    entry[@"value"]    = @(value.c_str());
+    entry[@"presetValue"] = @(preset_value.c_str());
+
+    if ((def->type & ~coVectorType) == coEnum) {
+        NSMutableArray *values = [NSMutableArray array];
+        NSMutableArray *labels = [NSMutableArray array];
+        for (size_t i = 0; i < def->enum_values.size(); ++i) {
+            [values addObject:@(def->enum_values[i].c_str())];
+            [labels addObject:@(i < def->enum_labels.size() ? def->enum_labels[i].c_str()
+                                                            : def->enum_values[i].c_str())];
+        }
+        entry[@"enumValues"] = values;
+        entry[@"enumLabels"] = labels;
+    }
+    return entry;
+}
+
++ (NSDictionary<NSString *, id> *)projectOptionForKey:(NSString *)key
+{
+    if (!s_bundle) return nil;
+    try {
+        const std::string k = key.UTF8String;
+        const ConfigOptionDef *def = print_config_def.get(k);
+        if (!def || !s_bundle->project_config.has(k)) return nil;
+        const std::string value = s_bundle->project_config.opt_serialize(k);
+        return describe_option(k, def, value, value);
+    } catch (const std::exception &) {
+        return nil;
+    }
+}
+
++ (BOOL)setProjectValue:(NSString *)value forKey:(NSString *)key
+{
+    if (!s_bundle) return NO;
+    try {
+        s_bundle->project_config.set_deserialize_strict(key.UTF8String, value.UTF8String);
+        return YES;
+    } catch (const std::exception &) {
+        return NO;
+    }
+}
+
 + (NSArray<NSDictionary<NSString *, id> *> *)configOptionsForTab:(NSString *)tab
 {
     PresetCollection *coll = collection_for_tab(tab);
@@ -344,28 +400,8 @@ static NSString *ui_type_for(ConfigOptionType type)
         if (!def || def->mode == comDevelop || def->label.empty())
             continue;
 
-        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
-        entry[@"key"]      = @(key.c_str());
-        entry[@"label"]    = @(def->label.c_str());
-        entry[@"tooltip"]  = @(def->tooltip.c_str());
-        entry[@"category"] = @(def->category.empty() ? "Other" : def->category.c_str());
-        entry[@"unit"]     = @(def->sidetext.c_str());
-        entry[@"type"]     = ui_type_for(def->type);
-        entry[@"value"]    = @(edited.opt_serialize(key).c_str());
-        entry[@"presetValue"] = @(preset.has(key) ? preset.opt_serialize(key).c_str() : "");
-
-        if ((def->type & ~coVectorType) == coEnum) {
-            NSMutableArray *values = [NSMutableArray array];
-            NSMutableArray *labels = [NSMutableArray array];
-            for (size_t i = 0; i < def->enum_values.size(); ++i) {
-                [values addObject:@(def->enum_values[i].c_str())];
-                [labels addObject:@(i < def->enum_labels.size() ? def->enum_labels[i].c_str()
-                                                                : def->enum_values[i].c_str())];
-            }
-            entry[@"enumValues"] = values;
-            entry[@"enumLabels"] = labels;
-        }
-        [options addObject:entry];
+        [options addObject:describe_option(key, def, edited.opt_serialize(key),
+                                          preset.has(key) ? preset.opt_serialize(key) : "")];
     }
     return options;
 }

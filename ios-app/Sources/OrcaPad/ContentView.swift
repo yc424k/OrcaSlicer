@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var presetsRevision = 0 // reload token for the embedded editor
     @State private var activeCalibration: CalibrationKind?
     @State private var showCalibrationResult = false
+    @State private var nozzleDiameter = ""
+    @State private var bedType = ""
+    @State private var bedTypes: [(value: String, label: String)] = []
 
     // MARK: Scene state
     @State private var objects: [SceneObject] = []
@@ -230,7 +233,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
                 presetRow(title: "프린터", icon: "printer", value: selectedPrinter, kind: .printer)
-                presetRow(title: "필라멘트", icon: "circle.hexagongrid", value: selectedFilament, kind: .filament)
+                printerDetailRow
+                filamentRow
                 presetRow(title: "프로세스 (품질)", icon: "gearshape.2", value: selectedProcess, kind: .process)
             }
             .padding(12)
@@ -242,6 +246,85 @@ struct ContentView: View {
             }
         }
         .background(Color.orcaPanel)
+    }
+
+    /// Nozzle diameter (from the printer preset) and bed type, like the
+    /// desktop's nozzle and plate cards next to the printer.
+    private var printerDetailRow: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("노즐")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm")
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
+
+            Menu {
+                ForEach(Array(bedTypes.enumerated()), id: \.offset) { _, item in
+                    Button(item.label) {
+                        if OrcaSlicerCore.setProjectValue(item.value, forKey: "curr_bed_type") {
+                            bedType = item.value
+                        }
+                    }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("베드")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(bedTypeLabel)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .disabled(!isReady || isSlicing || bedTypes.isEmpty)
+        }
+    }
+
+    /// Filament card with the desktop's extruder-number badge.
+    private var filamentRow: some View {
+        Button {
+            activePicker = .filament
+        } label: {
+            HStack(spacing: 10) {
+                Text("1")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .background(Color.orcaAccent.opacity(0.25), in: RoundedRectangle(cornerRadius: 5))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("필라멘트")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(selectedFilament.isEmpty ? "선택 안 됨" : selectedFilament)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .disabled(!isReady || isSlicing)
+    }
+
+    private var bedTypeLabel: String {
+        bedTypes.first { $0.value == bedType }?.label ?? bedType
     }
 
     private func presetRow(title: String, icon: String, value: String, kind: PickerKind) -> some View {
@@ -603,6 +686,18 @@ struct ContentView: View {
         storedProcess = selectedProcess
         storedFilament = selectedFilament
         presetsRevision += 1 // the embedded editor re-reads current values
+
+        // Nozzle comes from the printer preset (first extruder); bed type is a
+        // project-level setting.
+        nozzleDiameter = (OrcaSlicerCore.configValue(forKey: "nozzle_diameter", tab: "printer") ?? "")
+            .components(separatedBy: ",").first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        if let bed = OrcaSlicerCore.projectOption(forKey: "curr_bed_type") {
+            bedType = bed["value"] as? String ?? ""
+            let values = bed["enumValues"] as? [String] ?? []
+            let labels = bed["enumLabels"] as? [String] ?? []
+            bedTypes = zip(values, labels).map { ($0, $1) }
+        }
     }
 }
 

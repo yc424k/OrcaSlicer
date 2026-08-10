@@ -134,6 +134,13 @@ NS_ASSUME_NONNULL_BEGIN
 /// Current (edited) serialized value of one option, nil when unavailable.
 + (nullable NSString *)configValueForKey:(NSString *)key tab:(NSString *)tab;
 
+/// Project-level option (bed type, wipe tower, …) described like the entries
+/// of configOptionsForTab:. Nil when the key is not a project setting.
++ (nullable NSDictionary<NSString *, id> *)projectOptionForKey:(NSString *)key;
+
+/// Sets a project-level option; slicing picks it up via full_config().
++ (BOOL)setProjectValue:(NSString *)value forKey:(NSString *)key;
+
 #pragma mark - Toolpath preview
 
 /// Toolpath vertices of the last successful slice, for the 3D preview:
