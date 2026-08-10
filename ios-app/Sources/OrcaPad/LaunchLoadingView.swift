@@ -1,12 +1,19 @@
 import SwiftUI
 
 /// Startup splash: a nozzle laying down filament, layer by layer, instead of
-/// a plain progress bar. Indeterminate — it loops while profiles load.
+/// a plain progress bar. The stack is timed from when the view appears so the
+/// pyramid always completes at least once (see `cycleDuration`).
 struct LaunchLoadingView: View {
     let status: String
 
-    private let layerCount = 7
-    private let sweepDuration = 0.85
+    static let layerCount = 7
+    static let sweepDuration = 0.42
+    /// Pause showing the finished stack before the next pass starts.
+    static let holdDuration = 0.9
+    /// One full build plus that pause — the minimum time to keep the splash up.
+    static let cycleDuration = Double(layerCount) * sweepDuration + holdDuration
+
+    @State private var start = Date()
 
     var body: some View {
         ZStack {
@@ -19,7 +26,7 @@ struct LaunchLoadingView: View {
                 TimelineView(.animation) { timeline in
                     Canvas { context, size in
                         draw(context: &context, size: size,
-                             time: timeline.date.timeIntervalSinceReferenceDate)
+                             elapsed: timeline.date.timeIntervalSince(start))
                     }
                     .frame(width: 260, height: 130)
                 }
@@ -29,21 +36,25 @@ struct LaunchLoadingView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .onAppear { start = Date() }
     }
 
-    private func draw(context: inout GraphicsContext, size: CGSize, time: TimeInterval) {
+    private func draw(context: inout GraphicsContext, size: CGSize, elapsed: TimeInterval) {
         let accent = Color.orcaAccent
         let lineHeight: CGFloat = 9
         let lineGap: CGFloat = 3
         let margin: CGFloat = 24
         let printWidth = size.width - margin * 2
 
-        // Which layer the nozzle is on, and how far through the sweep.
-        let total = time / sweepDuration
-        let cycle = Int(total) % (layerCount + 2) // +2: brief pause with the full stack
-        let phase = CGFloat(total.truncatingRemainder(dividingBy: 1))
-        let layer = min(cycle, layerCount - 1)
-        let printing = cycle < layerCount
+        // Where we are in the current build: laying layers, then holding the
+        // finished stack before looping.
+        let layerCount = Self.layerCount
+        let buildTime = Double(layerCount) * Self.sweepDuration
+        let cycle = elapsed.truncatingRemainder(dividingBy: Self.cycleDuration)
+        let printing = cycle < buildTime
+        let progress = cycle / Self.sweepDuration
+        let layer = printing ? min(Int(progress), layerCount - 1) : layerCount - 1
+        let phase = CGFloat(progress.truncatingRemainder(dividingBy: 1))
 
         let bedY = size.height - 14
 

@@ -50,6 +50,9 @@ struct ContentView: View {
     @State private var showSidebar = true
     private enum CenterMode { case scene, preview }
     @State private var centerMode: CenterMode = .scene
+    @State private var splashCycleDone = false
+
+    private var showSplash: Bool { !isReady || !splashCycleDone }
 
     var body: some View {
         ZStack {
@@ -68,15 +71,21 @@ struct ContentView: View {
                 }
             }
 
-            if !isReady {
+            if showSplash {
                 LaunchLoadingView(status: status)
                     .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSidebar)
-        .animation(.easeOut(duration: 0.4), value: isReady)
+        .animation(.easeOut(duration: 0.4), value: showSplash)
         .background(Color.orcaWindow)
         .task { initializeCore() }
+        .task {
+            // Keep the splash up long enough for the nozzle to finish one
+            // full stack, even when the profiles load faster than that.
+            try? await Task.sleep(nanoseconds: UInt64(LaunchLoadingView.cycleDuration * 1_000_000_000))
+            splashCycleDone = true
+        }
         .task(id: isSlicing) {
             // Poll the core's slicing progress while a slice runs.
             while isSlicing {
