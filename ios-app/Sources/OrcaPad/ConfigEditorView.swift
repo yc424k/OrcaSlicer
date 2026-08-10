@@ -32,34 +32,42 @@ struct ConfigOption: Identifiable {
     }
 }
 
-/// Settings editor generated from the PrintConfig option definitions — the
-/// same metadata that drives the desktop parameter tabs. Embeddable in a
-/// sidebar (no navigation chrome of its own).
+/// Settings editor laid out like the desktop sidebar: a tab per settings page
+/// (Quality / Strength / Speed / …), the page's option groups with their icons
+/// and titles, and one row per option in the desktop's order.
 struct ConfigEditorPanel: View {
     /// Bump to make the panel re-read values (e.g. after a preset change).
     let reloadToken: Int
     var onPresetSaved: () -> Void = {}
 
     @State private var tab = "process"
-    @State private var options: [ConfigOption] = []
+    @State private var page = ""
+    @State private var options: [String: ConfigOption] = [:] // by key
     @State private var query = ""
-    @State private var revision = 0 // bumped to force rows to resync their edit buffers
+    @State private var revision = 0 // bumped to force rows to resync their buffers
     @State private var showSaveDialog = false
     @State private var presetName = "내 프리셋"
-    @State private var expandedCategories: Set<String> = []
 
     private let tabs = [("process", "프로세스"), ("filament", "필라멘트"), ("printer", "프린터")]
 
-    private var filtered: [ConfigOption] {
-        query.isEmpty ? options : options.filter {
-            $0.label.localizedCaseInsensitiveContains(query) || $0.key.localizedCaseInsensitiveContains(query)
-        }
+    private var pages: [SettingsLayout.Page] { SettingsLayout.shared.pages(for: tab) }
+
+    private var currentPage: SettingsLayout.Page? {
+        pages.first { $0.title == page } ?? pages.first
     }
 
-    private var categories: [(String, [ConfigOption])] {
-        Dictionary(grouping: filtered, by: \.category)
-            .sorted { $0.key < $1.key }
-            .map { ($0.key, $0.value.sorted { $0.label < $1.label }) }
+    /// Search looks across every page of the tab; otherwise the selected page.
+    private var searchResults: [(group: String, icon: String, options: [ConfigOption])] {
+        let needle = query.lowercased()
+        return pages.flatMap { page in
+            page.groups.compactMap { group -> (String, String, [ConfigOption])? in
+                let matches = group.keys.compactMap { options[$0] }.filter {
+                    $0.label.lowercased().contains(needle) || $0.key.lowercased().contains(needle)
+                }
+                guard !matches.isEmpty else { return nil }
+                return ("\(page.title) › \(group.title)", group.icon, matches)
+            }
+        }
     }
 
     var body: some View {
@@ -71,63 +79,31 @@ struct ConfigEditorPanel: View {
             }
             .pickerStyle(.segmented)
 
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("설정 검색", text: $query)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(8)
-            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 8))
+            searchField
 
-            Button {
-                showSaveDialog = true
-            } label: {
-                Label("현재 설정을 프리셋으로 저장", systemImage: "square.and.arrow.down")
-                    .font(.callout)
-                    .frame(maxWidth: .infinity)
+            if query.isEmpty {
+                pageTabs
             }
-            .buttonStyle(.bordered)
 
             List {
-                ForEach(categories, id: \.0) { category, items in
-                    // While searching, matches are shown flat; otherwise the
-                    // categories act as a collapsible table of contents.
-                    if query.isEmpty {
-                        DisclosureGroup(isExpanded: expansionBinding(for: category)) {
-                            ForEach(items) { option in
-                                ConfigOptionRow(option: option, revision: revision) { newValue in
-                                    commit(option: option, newValue: newValue)
-                                }
-                                .listRowBackground(Color.clear)
+                if query.isEmpty {
+                    ForEach(currentPage?.groups ?? []) { group in
+                        Section {
+                            ForEach(group.keys.compactMap { options[$0] }) { option in
+                                row(option)
                             }
-                        } label: {
-                            HStack {
-                                Text(category).font(.headline)
-                                Spacer()
-                                Text("\(items.count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                        } header: {
+                            groupHeader(title: group.title, icon: group.icon)
                         }
-                        .listRowBackground(Color.clear)
-                    } else {
-                        Section(category) {
-                            ForEach(items) { option in
-                                ConfigOptionRow(option: option, revision: revision) { newValue in
-                                    commit(option: option, newValue: newValue)
-                                }
-                                .listRowBackground(Color.clear)
+                    }
+                } else {
+                    ForEach(searchResults, id: \.group) { result in
+                        Section {
+                            ForEach(result.options) { option in
+                                row(option)
                             }
+                        } header: {
+                            groupHeader(title: result.group, icon: result.icon)
                         }
                     }
                 }
@@ -148,34 +124,109 @@ struct ConfigEditorPanel: View {
         } message: {
             Text("사용자 프리셋은 다음 실행에도 유지됩니다")
         }
-        .onChange(of: tab) { _ in reload() }
+        .onChange(of: tab) { _ in
+            page = SettingsLayout.shared.pages(for: tab).first?.title ?? ""
+            reload()
+        }
         .onChange(of: reloadToken) { _ in reload() }
-        .onAppear { reload() }
+        .onAppear {
+            if page.isEmpty { page = pages.first?.title ?? "" }
+            reload()
+        }
     }
 
-    private func expansionBinding(for category: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedCategories.contains(category) },
-            set: { expanded in
-                if expanded {
-                    expandedCategories.insert(category)
-                } else {
-                    expandedCategories.remove(category)
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("설정 검색", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
                 }
             }
-        )
+            Button {
+                showSaveDialog = true
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .help("현재 설정을 프리셋으로 저장")
+        }
+        .padding(8)
+        .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Page tabs (Quality / Strength / …), like the desktop's tab row.
+    private var pageTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 18) {
+                ForEach(pages) { item in
+                    Button {
+                        page = item.title
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(item.title)
+                                .font(.callout.weight(item.title == currentPage?.title ? .semibold : .regular))
+                                .foregroundStyle(item.title == currentPage?.title ? Color.primary : .secondary)
+                            Rectangle()
+                                .fill(item.title == currentPage?.title ? Color.orcaAccent : .clear)
+                                .frame(height: 2)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private func groupHeader(title: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            if !icon.isEmpty, UIImage(named: icon) != nil {
+                Image(icon)
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(Color.orcaAccent)
+            }
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            Rectangle()
+                .fill(Color.orcaSeparator)
+                .frame(height: 1)
+        }
+        .textCase(nil)
+        .padding(.top, 4)
+    }
+
+    private func row(_ option: ConfigOption) -> some View {
+        ConfigOptionRow(option: option, revision: revision) { newValue in
+            commit(option: option, newValue: newValue)
+        }
+        .listRowBackground(Color.clear)
     }
 
     private func reload() {
-        options = OrcaSlicerCore.configOptions(forTab: tab).compactMap { ConfigOption(dictionary: $0) }
+        var byKey: [String: ConfigOption] = [:]
+        for dictionary in OrcaSlicerCore.configOptions(forTab: tab) {
+            if let option = ConfigOption(dictionary: dictionary) {
+                byKey[option.key] = option
+            }
+        }
+        options = byKey
         revision += 1
     }
 
     private func commit(option: ConfigOption, newValue: String) {
         guard newValue != option.value else { return }
-        if let normalized = OrcaSlicerCore.setConfigValue(newValue, forKey: option.key, tab: tab),
-           let idx = options.firstIndex(where: { $0.key == option.key }) {
-            options[idx].value = normalized
+        if let normalized = OrcaSlicerCore.setConfigValue(newValue, forKey: option.key, tab: tab) {
+            options[option.key]?.value = normalized
         } else {
             // Rejected by the core (parse error) — restore the row's buffer.
             reload()
