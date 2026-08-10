@@ -21,6 +21,7 @@ struct ContentView: View {
     }
     @State private var activePicker: PickerKind?
     @State private var previewData: ToolpathData?
+    @State private var showConfigEditor = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +30,19 @@ struct ContentView: View {
                     presetRow(title: "프린터", value: selectedPrinter, kind: .printer)
                     presetRow(title: "프로세스 (품질)", value: selectedProcess, kind: .process)
                     presetRow(title: "필라멘트", value: selectedFilament, kind: .filament)
+
+                    Button {
+                        showConfigEditor = true
+                    } label: {
+                        HStack {
+                            Label("설정 편집", systemImage: "slider.horizontal.3")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .disabled(!isReady || isSlicing)
                 }
 
                 Section("슬라이스") {
@@ -91,6 +105,9 @@ struct ContentView: View {
         .task { initializeCore() }
         .fullScreenCover(item: $previewData) { data in
             GcodePreviewView(toolpaths: data)
+        }
+        .sheet(isPresented: $showConfigEditor) {
+            ConfigEditorView()
         }
         .sheet(item: $activePicker) { kind in
             PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in

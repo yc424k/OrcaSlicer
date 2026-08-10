@@ -34,6 +34,20 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)selectProcess:(NSString *)name error:(NSError **)error;
 + (BOOL)selectFilament:(NSString *)name error:(NSError **)error;
 
+#pragma mark - Config editing
+
+/// All editable options of one settings tab ("process" | "filament" | "printer"),
+/// each described as { key, label, tooltip, category, unit, type, value,
+/// presetValue, enumValues, enumLabels }. `value` is the current (edited)
+/// serialized value; `presetValue` the selected preset's original.
++ (NSArray<NSDictionary<NSString *, id> *> *)configOptionsForTab:(NSString *)tab;
+
+/// Sets a serialized value on the edited preset; slicing picks it up via
+/// full_config(). Returns the normalized serialized value or nil on failure.
++ (nullable NSString *)setConfigValue:(NSString *)value
+                               forKey:(NSString *)key
+                                  tab:(NSString *)tab;
+
 #pragma mark - Slicing
 
 /// Slices a model file (STL/3MF/OBJ). Uses the selected presets when the

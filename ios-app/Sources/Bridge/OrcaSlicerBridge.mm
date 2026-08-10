@@ -218,6 +218,84 @@ static void run_print_pipeline(Model &model, const char *output_path)
     return YES;
 }
 
+#pragma mark - Config editing
+
+static PresetCollection *collection_for_tab(NSString *tab)
+{
+    if (!s_bundle) return nullptr;
+    if ([tab isEqualToString:@"process"]) return &s_bundle->prints;
+    if ([tab isEqualToString:@"filament"]) return &s_bundle->filaments;
+    if ([tab isEqualToString:@"printer"]) return &s_bundle->printers;
+    return nullptr;
+}
+
+static NSString *ui_type_for(ConfigOptionType type)
+{
+    switch (type & ~coVectorType) {
+    case coBool: return @"bool";
+    case coEnum: return @"enum";
+    case coInt: return @"int";
+    case coFloat:
+    case coPercent:
+    case coFloatOrPercent: return @"number";
+    default: return @"string";
+    }
+}
+
++ (NSArray<NSDictionary<NSString *, id> *> *)configOptionsForTab:(NSString *)tab
+{
+    PresetCollection *coll = collection_for_tab(tab);
+    if (!coll) return @[];
+
+    const DynamicPrintConfig &edited = coll->get_edited_preset().config;
+    const DynamicPrintConfig &preset = coll->get_selected_preset().config;
+
+    NSMutableArray *options = [NSMutableArray array];
+    for (const std::string &key : edited.keys()) {
+        const ConfigOptionDef *def = print_config_def.get(key);
+        // Hide developer-mode and GUI-less internal options (no label).
+        if (!def || def->mode == comDevelop || def->label.empty())
+            continue;
+
+        NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+        entry[@"key"]      = @(key.c_str());
+        entry[@"label"]    = @(def->label.c_str());
+        entry[@"tooltip"]  = @(def->tooltip.c_str());
+        entry[@"category"] = @(def->category.empty() ? "Other" : def->category.c_str());
+        entry[@"unit"]     = @(def->sidetext.c_str());
+        entry[@"type"]     = ui_type_for(def->type);
+        entry[@"value"]    = @(edited.opt_serialize(key).c_str());
+        entry[@"presetValue"] = @(preset.has(key) ? preset.opt_serialize(key).c_str() : "");
+
+        if ((def->type & ~coVectorType) == coEnum) {
+            NSMutableArray *values = [NSMutableArray array];
+            NSMutableArray *labels = [NSMutableArray array];
+            for (size_t i = 0; i < def->enum_values.size(); ++i) {
+                [values addObject:@(def->enum_values[i].c_str())];
+                [labels addObject:@(i < def->enum_labels.size() ? def->enum_labels[i].c_str()
+                                                                : def->enum_values[i].c_str())];
+            }
+            entry[@"enumValues"] = values;
+            entry[@"enumLabels"] = labels;
+        }
+        [options addObject:entry];
+    }
+    return options;
+}
+
++ (NSString *)setConfigValue:(NSString *)value forKey:(NSString *)key tab:(NSString *)tab
+{
+    PresetCollection *coll = collection_for_tab(tab);
+    if (!coll) return nil;
+    try {
+        DynamicPrintConfig &config = coll->get_edited_preset().config;
+        config.set_deserialize_strict(key.UTF8String, value.UTF8String);
+        return @(config.opt_serialize(key.UTF8String).c_str());
+    } catch (const std::exception &) {
+        return nil;
+    }
+}
+
 #pragma mark - Slicing
 
 + (BOOL)sliceModelAtPath:(NSString *)inputPath toGcodePath:(NSString *)outputPath error:(NSError **)error
