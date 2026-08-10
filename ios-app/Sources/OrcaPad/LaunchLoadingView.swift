@@ -5,6 +5,9 @@ import SwiftUI
 /// pyramid always completes at least once (see `cycleDuration`).
 struct LaunchLoadingView: View {
     let status: String
+    /// Called once the first frame is on screen, so the caller can time the
+    /// minimum splash duration from when the stack actually starts building.
+    var onFirstFrame: () -> Void = {}
 
     static let layerCount = 7
     static let sweepDuration = 0.42
@@ -13,7 +16,12 @@ struct LaunchLoadingView: View {
     /// One full build plus that pause — the minimum time to keep the splash up.
     static let cycleDuration = Double(layerCount) * sweepDuration + holdDuration
 
-    @State private var start = Date()
+    /// Anchors the animation to the first rendered frame rather than to view
+    /// construction, so the stack always starts on the bed no matter how long
+    /// the app took to get on screen. A reference type because it is set from
+    /// inside the draw closure.
+    private final class Clock { var start: Date? }
+    @State private var clock = Clock()
 
     var body: some View {
         ZStack {
@@ -25,8 +33,12 @@ struct LaunchLoadingView: View {
 
                 TimelineView(.animation) { timeline in
                     Canvas { context, size in
+                        if clock.start == nil {
+                            clock.start = timeline.date
+                            DispatchQueue.main.async(execute: onFirstFrame)
+                        }
                         draw(context: &context, size: size,
-                             elapsed: timeline.date.timeIntervalSince(start))
+                             elapsed: timeline.date.timeIntervalSince(clock.start ?? timeline.date))
                     }
                     .frame(width: 260, height: 130)
                 }
@@ -36,7 +48,6 @@ struct LaunchLoadingView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .onAppear { start = Date() }
     }
 
     private func draw(context: inout GraphicsContext, size: CGSize, elapsed: TimeInterval) {
