@@ -10,6 +10,11 @@ struct CalibrationKind: Identifiable {
     let stepLabel: String
     let defaults: (start: Double, end: Double, step: Double)
 
+    /// Tests without adjustable parameters run with fixed defaults.
+    var needsParams: Bool {
+        !id.hasPrefix("flow_")
+    }
+
     static let all: [CalibrationKind] = [
         .init(id: "temp", name: "온도 타워",
               explanation: "블록마다 노즐 온도를 낮춰가며 출력합니다. 가장 품질이 좋은 블록의 온도를 사용하세요. (PLA 기본값)",
@@ -31,6 +36,34 @@ struct CalibrationKind: Identifiable {
               explanation: "속도를 올려가며 벽면의 미세 진동 무늬(VFA)를 관찰합니다.",
               startLabel: "시작 mm/s", endLabel: "끝 mm/s", stepLabel: "스텝 mm/s",
               defaults: (40, 200, 10)),
+        .init(id: "pa_line", name: "PA 라인",
+              explanation: "PA 값을 바꿔가며 라인을 출력합니다. 라인이 가장 균일한 값을 사용하세요. (다이렉트 기본값, 보우덴은 0~1 / 0.05)",
+              startLabel: "시작 PA", endLabel: "끝 PA", stepLabel: "스텝 PA",
+              defaults: (0, 0.08, 0.005)),
+        .init(id: "flow_p1", name: "유량 Pass 1",
+              explanation: "9개 블록을 서로 다른 유량 보정으로 출력합니다. 윗면이 가장 매끈한 블록의 수치로 필라멘트 유량비를 곱해 보정하세요.",
+              startLabel: "", endLabel: "", stepLabel: "", defaults: (0, 0, 1)),
+        .init(id: "flow_p2", name: "유량 Pass 2 (미세)",
+              explanation: "Pass 1 결과를 반영한 뒤 ±5% 범위에서 미세 조정합니다.",
+              startLabel: "", endLabel: "", stepLabel: "", defaults: (0, 0, 1)),
+        .init(id: "flow_yolo1", name: "유량 YOLO",
+              explanation: "Orca YOLO 방식 유량 캘리브레이션 — 결과 수치를 유량비에 더하면 됩니다.",
+              startLabel: "", endLabel: "", stepLabel: "", defaults: (0, 0, 1)),
+        .init(id: "flow_yolo2", name: "유량 YOLO (미세)",
+              explanation: "YOLO 미세 버전 (±0.035 범위).",
+              startLabel: "", endLabel: "", stepLabel: "", defaults: (0, 0, 1)),
+        .init(id: "is_freq", name: "인풋 셰이핑 주파수",
+              explanation: "높이에 따라 셰이퍼 주파수를 바꿔가며 링잉 타워를 출력합니다. (Klipper/Marlin 입력 셰이핑)",
+              startLabel: "시작 Hz", endLabel: "끝 Hz", stepLabel: "스텝",
+              defaults: (15, 110, 1)),
+        .init(id: "is_damp", name: "인풋 셰이핑 댐핑",
+              explanation: "주파수를 고정하고 높이에 따라 댐핑 계수를 바꿔가며 출력합니다.",
+              startLabel: "시작", endLabel: "끝", stepLabel: "스텝",
+              defaults: (0, 0.4, 1)),
+        .init(id: "cornering", name: "코너링 (Jerk/JD)",
+              explanation: "높이에 따라 저크(또는 정션 편차)를 바꿔가며 코너 품질을 관찰합니다. 끝 값이 기계 한계로 설정됩니다.",
+              startLabel: "시작", endLabel: "끝", stepLabel: "스텝",
+              defaults: (0, 20, 1)),
     ]
 }
 
@@ -53,10 +86,12 @@ struct CalibrationSheet: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Section("파라미터") {
-                    numberField(kind.startLabel, text: $start)
-                    numberField(kind.endLabel, text: $end)
-                    numberField(kind.stepLabel, text: $step)
+                if kind.needsParams {
+                    Section("파라미터") {
+                        numberField(kind.startLabel, text: $start)
+                        numberField(kind.endLabel, text: $end)
+                        numberField(kind.stepLabel, text: $step)
+                    }
                 }
                 Section {
                     Button {

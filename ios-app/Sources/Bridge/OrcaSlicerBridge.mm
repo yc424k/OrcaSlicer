@@ -386,7 +386,7 @@ static NSString *ui_type_for(ConfigOptionType type)
 + (BOOL)sliceModelAtPath:(NSString *)inputPath toGcodePath:(NSString *)outputPath error:(NSError **)error
 {
     try {
-        Model model = Model::read_from_file(inputPath.UTF8String);
+        Model model = Model::read_from_file(inputPath.UTF8String, nullptr, nullptr, LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
         run_print_pipeline(model, outputPath.UTF8String);
         return YES;
     } catch (const std::exception &ex) {
@@ -455,7 +455,7 @@ static void drop_on_bed_center(ModelObject *object)
                                            nullptr, nullptr, nullptr, 0.003, 0.5, false);
 #endif
         } else {
-            loaded = Model::read_from_file(path.UTF8String);
+            loaded = Model::read_from_file(path.UTF8String, nullptr, nullptr, LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
         }
         for (ModelObject *object : loaded.objects) {
             ModelObject *added = scene().add_object(*object);
@@ -613,7 +613,7 @@ static void drop_on_bed_center(ModelObject *object)
 static ModelObject *load_calib_model(const char *relative_path)
 {
     scene().clear_objects();
-    Model loaded = Model::read_from_file(resources_dir() + relative_path);
+    Model loaded = Model::read_from_file(resources_dir() + relative_path, nullptr, nullptr, LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
     if (loaded.objects.empty())
         throw std::runtime_error("calibration model is empty");
     ModelObject *added = scene().add_object(*loaded.objects.front());
@@ -792,6 +792,198 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
                 obj = calib_cut(obj, height, true);
             drop_on_bed_center(obj);
             s_calib_label = @"PA 타워";
+        } else if ([mode isEqualToString:@"pa_line"]) {
+            // Desktop Plater::calib_pa, PA line branch.
+            params.mode = CalibMode::Calib_PA_Line;
+            ModelObject *obj = load_calib_model("/calib/pressure_advance/pressure_advance_test.drc");
+            s_calib_overrides.set_key_value("overhang_reverse", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            drop_on_bed_center(obj);
+            s_calib_label = @"PA 라인";
+        } else if ([mode hasPrefix:@"flow_"]) {
+            // Desktop Plater::calib_flowrate + adjust_settings_for_flowrate_calib
+            // (single extruder).
+            params.mode = CalibMode::Calib_Flow_Rate;
+            const bool linear = [mode containsString:@"yolo"];
+            const int  pass   = [mode hasSuffix:@"2"] ? 2 : 1;
+            const char *path  = linear
+                ? (pass == 1 ? "/calib/filament_flow/Orca-LinearFlow.3mf"
+                             : "/calib/filament_flow/Orca-LinearFlow_fine.3mf")
+                : (pass == 1 ? "/calib/filament_flow/flowrate-test-pass1.3mf"
+                             : "/calib/filament_flow/flowrate-test-pass2.3mf");
+            scene().clear_objects();
+            Model loaded = Model::read_from_file(resources_dir() + path, nullptr, nullptr, LoadStrategy::LoadModel | LoadStrategy::AddDefaultInstances);
+            if (loaded.objects.empty())
+                throw std::runtime_error("calibration model is empty");
+            for (ModelObject *object : loaded.objects) {
+                ModelObject *added = scene().add_object(*object);
+                if (added->instances.empty())
+                    added->add_instance();
+            }
+
+            const double xy_scale     = nozzle / 0.6;
+            const double layer_height = nozzle / 2.0;
+            double first_layer_height = config.option<ConfigOptionFloat>("initial_layer_print_height")->value;
+            first_layer_height        = std::max(first_layer_height, layer_height);
+            const double z_scale      = (first_layer_height + 9 * layer_height) / 2.;
+
+            const auto *flow_opt     = config.option<ConfigOptionFloatsNullable>("filament_flow_ratio");
+            const double cur_flow    = flow_opt && !flow_opt->values.empty() ? flow_opt->get_at(0) : 1.0;
+            const auto *fmvs_opt     = config.option<ConfigOptionFloats>("filament_max_volumetric_speed");
+            const double fmvs        = fmvs_opt && !fmvs_opt->values.empty() ? fmvs_opt->values.front() : 20.;
+            double line_width = config.get_abs_value("line_width", nozzle);
+            if (line_width <= EPSILON)
+                line_width = nozzle * 1.125; // 0 = auto in the presets
+            double preset_lh = config.option<ConfigOptionFloat>("layer_height")->value;
+            if (preset_lh <= EPSILON)
+                preset_lh = nozzle / 2.;
+            const Flow   flow{float(line_width), float(preset_lh), float(nozzle)};
+            const double max_speed   = linear
+                ? fmvs / (flow.mm3_per_mm() * (cur_flow + (pass == 2 ? 0.035 : 0.05)) / cur_flow)
+                : fmvs / (flow.mm3_per_mm() * (pass == 1 ? 1.2 : 1.));
+            auto capped_speed = [&](const char *key) {
+                const auto *opt = config.option<ConfigOptionFloatsNullable>(key);
+                const double cur = opt && !opt->values.empty() ? opt->get_at(0) : max_speed;
+                return std::floor(std::min(cur, max_speed));
+            };
+            const double solid_speed = capped_speed("internal_solid_infill_speed");
+            const double top_speed   = capped_speed("top_surface_speed");
+
+            for (ModelObject *obj : scene().objects) {
+                obj->scale(xy_scale > 1.2 ? xy_scale : 1., xy_scale > 1.2 ? xy_scale : 1., z_scale);
+                obj->ensure_on_bed();
+                auto &c = obj->config;
+                c.set_key_value("wall_loops", new ConfigOptionInt(1));
+                c.set_key_value("only_one_wall_top", new ConfigOptionBool(true));
+                c.set_key_value("thick_internal_bridges", new ConfigOptionBool(false));
+                c.set_key_value("enable_extra_bridge_layer", new ConfigOptionEnum<EnableExtraBridgeLayer>(eblDisabled));
+                c.set_key_value("internal_bridge_density", new ConfigOptionPercent(100));
+                c.set_key_value("sparse_infill_density", new ConfigOptionPercent(35));
+                c.set_key_value("min_width_top_surface", new ConfigOptionFloatOrPercent(100, true));
+                c.set_key_value("bottom_shell_layers", new ConfigOptionInt(2));
+                c.set_key_value("top_shell_layers", new ConfigOptionInt(5));
+                c.set_key_value("top_shell_thickness", new ConfigOptionFloat(0));
+                c.set_key_value("bottom_shell_thickness", new ConfigOptionFloat(0));
+                c.set_key_value("detect_thin_wall", new ConfigOptionBool(true));
+                c.set_key_value("filter_out_gap_fill", new ConfigOptionFloat(0));
+                c.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+                c.set_key_value("top_surface_line_width", new ConfigOptionFloatOrPercent(nozzle * 1.2, false));
+                c.set_key_value("internal_solid_infill_line_width", new ConfigOptionFloatOrPercent(nozzle * 1.2, false));
+                c.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipMonotonic));
+                c.set_key_value("top_solid_infill_flow_ratio", new ConfigOptionFloat(1.));
+                c.set_key_value("infill_direction", new ConfigOptionFloat(45));
+                c.set_key_value("solid_infill_direction", new ConfigOptionFloat(135));
+                c.set_key_value("center_of_surface_pattern", new ConfigOptionEnum<CenterOfSurfacePattern>(CenterOfSurfacePattern::Each_Surface));
+                c.set_key_value("separated_infills", new ConfigOptionBool(false));
+                c.set_key_value("align_infill_direction_to_model", new ConfigOptionBool(true));
+                c.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+                c.set_key_value("internal_solid_infill_speed", new ConfigOptionFloatsNullable(1, solid_speed));
+                c.set_key_value("top_surface_speed", new ConfigOptionFloatsNullable(1, top_speed));
+                c.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+                c.set_key_value("gap_fill_target", new ConfigOptionEnum<GapFillTarget>(GapFillTarget::gftNowhere));
+                c.set_key_value("calib_flowrate_topinfill_special_order", new ConfigOptionBool(true));
+                c.set_key_value("top_surface_fill_order", new ConfigOptionEnum<SurfaceFillOrder>(SurfaceFillOrder::Default));
+
+                // The flow modifier is encoded in the object name: flowrate_xxx.
+                std::string name = obj->name;
+                double modifier = 0.;
+                if (name.length() > 9) {
+                    name = name.substr(9);
+                    if (!name.empty() && name[0] == 'm')
+                        name[0] = '-';
+                    try { modifier = std::stod(name); } catch (...) {}
+                }
+                c.set_key_value("print_flow_ratio",
+                                new ConfigOptionFloat(linear ? (cur_flow + modifier) / cur_flow
+                                                             : 1. + modifier / 100.));
+            }
+
+            s_calib_overrides.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+            s_calib_overrides.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("initial_layer_print_height", new ConfigOptionFloat(first_layer_height));
+            s_calib_overrides.set_key_value("reduce_crossing_wall", new ConfigOptionBool(true));
+            s_calib_overrides.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
+            s_calib_label = linear ? (pass == 1 ? @"유량 YOLO" : @"유량 YOLO (미세)")
+                                   : (pass == 1 ? @"유량 Pass 1" : @"유량 Pass 2");
+        } else if ([mode isEqualToString:@"is_freq"] || [mode isEqualToString:@"is_damp"] ||
+                   [mode isEqualToString:@"cornering"]) {
+            // Desktop Plater::calib_input_shaping_freq / _damp / Calib_Cornering
+            // (ringing tower model variant, single extruder).
+            const bool cornering = [mode isEqualToString:@"cornering"];
+            params.mode = cornering ? CalibMode::Calib_Cornering
+                        : ([mode isEqualToString:@"is_freq"] ? CalibMode::Calib_Input_shaping_freq
+                                                             : CalibMode::Calib_Input_shaping_damp);
+            ModelObject *obj = load_calib_model(cornering ? "/calib/cornering/SCV-V2.drc"
+                                                          : "/calib/input_shaping/ringing_tower.drc");
+
+            const auto *flavor_opt = config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
+            const auto *junction   = config.option<ConfigOptionFloats>("machine_max_junction_deviation");
+            const bool  has_junction = flavor_opt && flavor_opt->value == GCodeFlavor::gcfMarlinFirmware &&
+                                       junction && !junction->values.empty() && junction->values.front() > 0;
+            if (has_junction) {
+                const double value = cornering ? end : std::max(junction->values.front(), 0.25);
+                s_calib_overrides.set_key_value("machine_max_junction_deviation", new ConfigOptionFloats(1, value));
+                s_calib_overrides.set_key_value("default_junction_deviation", new ConfigOptionFloatsNullable(1, 0.));
+            } else {
+                const bool  klipper = flavor_opt && flavor_opt->value == GCodeFlavor::gcfKlipper;
+                const auto *jerk_x  = config.option<ConfigOptionFloats>("machine_max_jerk_x");
+                const auto *jerk_y  = config.option<ConfigOptionFloats>("machine_max_jerk_y");
+                const double base   = klipper ? 5. : 10.;
+                const double vx = cornering ? end : std::max(jerk_x && !jerk_x->values.empty() ? jerk_x->values.front() : 0., base);
+                const double vy = cornering ? end : std::max(jerk_y && !jerk_y->values.empty() ? jerk_y->values.front() : 0., base);
+                s_calib_overrides.set_key_value("machine_max_jerk_x", new ConfigOptionFloats(1, vx));
+                s_calib_overrides.set_key_value("machine_max_jerk_y", new ConfigOptionFloats(1, vy));
+                s_calib_overrides.set_key_value("default_jerk", new ConfigOptionFloatsNullable(1, 0.));
+            }
+
+            const auto *pa_enabled = config.option<ConfigOptionBools>("enable_pressure_advance");
+            if (!pa_enabled || pa_enabled->values.empty() || !pa_enabled->values.front()) {
+                s_calib_overrides.set_key_value("enable_pressure_advance", new ConfigOptionBools(1, true));
+                s_calib_overrides.set_key_value("pressure_advance", new ConfigOptionFloatsNullable(1, 0.));
+                s_calib_overrides.set_key_value("adaptive_pressure_advance", new ConfigOptionBools(1, false));
+            }
+
+            if (cornering) {
+                s_calib_overrides.set_key_value("input_shaping_emit", new ConfigOptionBool(true));
+                s_calib_overrides.set_key_value("input_shaping_type", new ConfigOptionEnum<InputShaperType>(InputShaperType::Disable));
+                const auto *fmvs_opt = config.option<ConfigOptionFloats>("filament_max_volumetric_speed");
+                const double fmvs = fmvs_opt && !fmvs_opt->values.empty() ? fmvs_opt->values.front() : 0.;
+                s_calib_overrides.set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats(1, std::max(fmvs, 200.)));
+            } else {
+                s_calib_overrides.set_key_value("input_shaping_emit", new ConfigOptionBool(false));
+            }
+            if (params.mode == CalibMode::Calib_Input_shaping_freq)
+                s_calib_overrides.set_key_value("layer_height", new ConfigOptionFloat(0.2));
+
+            s_calib_overrides.set_key_value("slow_down_layer_time", new ConfigOptionFloats(1, 0.));
+            s_calib_overrides.set_key_value("slow_down_min_speed", new ConfigOptionFloats(1, 0.));
+            s_calib_overrides.set_key_value("slow_down_for_layer_cooling", new ConfigOptionBools(1, false));
+            s_calib_overrides.set_key_value("enable_overhang_speed", new ConfigOptionBoolsNullable(1, false));
+            s_calib_overrides.set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
+            s_calib_overrides.set_key_value("wall_loops", new ConfigOptionInt(1));
+            s_calib_overrides.set_key_value("top_shell_layers", new ConfigOptionInt(0));
+            s_calib_overrides.set_key_value("bottom_shell_layers", new ConfigOptionInt(1));
+            s_calib_overrides.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
+            s_calib_overrides.set_key_value("detect_thin_wall", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("spiral_mode", new ConfigOptionBool(true));
+            s_calib_overrides.set_key_value("spiral_mode_smooth", new ConfigOptionBool(false));
+            s_calib_overrides.set_key_value("bottom_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipRectilinear));
+            const auto *msx = config.option<ConfigOptionFloats>("machine_max_speed_x");
+            const auto *msy = config.option<ConfigOptionFloats>("machine_max_speed_y");
+            const auto *acc = config.option<ConfigOptionFloats>("machine_max_acceleration_extruding");
+            const double max_speed = std::min(msx && !msx->values.empty() ? msx->values.front() : 200.,
+                                              msy && !msy->values.empty() ? msy->values.front() : 200.);
+            const double max_accel = acc && !acc->values.empty() ? acc->values.front() : 5000.;
+            s_calib_overrides.set_key_value("outer_wall_speed", new ConfigOptionFloatsNullable(1, max_speed));
+            s_calib_overrides.set_key_value("default_acceleration", new ConfigOptionFloatsNullable(1, max_accel));
+            s_calib_overrides.set_key_value("outer_wall_acceleration", new ConfigOptionFloatsNullable(1, max_accel));
+            s_calib_overrides.set_key_value("precise_z_height", new ConfigOptionBool(false));
+            obj->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+            obj->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
+            obj->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+            drop_on_bed_center(obj);
+            s_calib_label = cornering ? @"코너링" : (params.mode == CalibMode::Calib_Input_shaping_freq
+                                                     ? @"인풋 셰이핑 주파수" : @"인풋 셰이핑 댐핑");
         } else {
             throw std::runtime_error("unknown calibration mode");
         }
