@@ -2,54 +2,74 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var status = "모델 파일을 선택하거나 테스트 큐브를 슬라이스하세요"
+    @State private var status = "프로파일 로딩 중…"
     @State private var isSlicing = false
+    @State private var isReady = false
     @State private var showImporter = false
     @State private var gcodeURL: URL?
 
+    @State private var printers: [String] = []
+    @State private var processes: [String] = []
+    @State private var filaments: [String] = []
+    @State private var selectedPrinter = ""
+    @State private var selectedProcess = ""
+    @State private var selectedFilament = ""
+
+    private enum PickerKind: String, Identifiable {
+        case printer = "프린터", process = "프로세스", filament = "필라멘트"
+        var id: String { rawValue }
+    }
+    @State private var activePicker: PickerKind?
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Image(systemName: "cube.transparent")
-                    .font(.system(size: 72))
-                    .foregroundStyle(.tint)
-
-                Text(status)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                if isSlicing {
-                    ProgressView()
+            Form {
+                Section("설정") {
+                    presetRow(title: "프린터", value: selectedPrinter, kind: .printer)
+                    presetRow(title: "프로세스 (품질)", value: selectedProcess, kind: .process)
+                    presetRow(title: "필라멘트", value: selectedFilament, kind: .filament)
                 }
 
-                Button {
-                    showImporter = true
-                } label: {
-                    Label("모델 파일 선택 (STL/3MF/OBJ)", systemImage: "folder")
-                        .frame(maxWidth: 360)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSlicing)
+                Section("슬라이스") {
+                    VStack(spacing: 16) {
+                        Text(status)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
 
-                Button {
-                    sliceTestCube()
-                } label: {
-                    Label("테스트 큐브 슬라이스", systemImage: "shippingbox")
-                        .frame(maxWidth: 360)
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSlicing)
+                        if isSlicing || !isReady {
+                            ProgressView().frame(maxWidth: .infinity)
+                        }
 
-                if let gcodeURL {
-                    ShareLink(item: gcodeURL) {
-                        Label("G-code 내보내기", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: 360)
+                        Button {
+                            showImporter = true
+                        } label: {
+                            Label("모델 파일 선택 (STL/3MF/OBJ)", systemImage: "folder")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSlicing || !isReady)
+
+                        Button {
+                            sliceTestCube()
+                        } label: {
+                            Label("테스트 큐브 슬라이스", systemImage: "shippingbox")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isSlicing || !isReady)
+
+                        if let gcodeURL {
+                            ShareLink(item: gcodeURL) {
+                                Label("G-code 내보내기", systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
+                    .padding(.vertical, 8)
                 }
             }
-            .padding()
             .navigationTitle("OrcaPad")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -59,12 +79,88 @@ struct ContentView: View {
                 }
             }
         }
+        .task { initializeCore() }
+        .sheet(item: $activePicker) { kind in
+            PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in
+                select(name, for: kind)
+            }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data, .item]) { result in
             if case let .success(url) = result {
                 sliceFile(at: url)
             }
         }
     }
+
+    private func presetRow(title: String, value: String, kind: PickerKind) -> some View {
+        Button {
+            activePicker = kind
+        } label: {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                Text(value.isEmpty ? "선택 안 됨" : value)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .disabled(!isReady || isSlicing)
+    }
+
+    private func items(for kind: PickerKind) -> [String] {
+        switch kind {
+        case .printer: return printers
+        case .process: return processes
+        case .filament: return filaments
+        }
+    }
+
+    private func select(_ name: String, for kind: PickerKind) {
+        switch kind {
+        case .printer: try? OrcaSlicerCore.selectPrinter(name)
+        case .process: try? OrcaSlicerCore.selectProcess(name)
+        case .filament: try? OrcaSlicerCore.selectFilament(name)
+        }
+        refreshPresetLists()
+    }
+
+    // MARK: - Core lifecycle
+
+    private func initializeCore() {
+        Task.detached(priority: .userInitiated) {
+            let resources = Bundle.main.resourcePath ?? ""
+            let data = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("OrcaSlicer").path
+            do {
+                try OrcaSlicerCore.initialize(withResourcesPath: resources, dataPath: data)
+                await MainActor.run {
+                    isReady = true
+                    refreshPresetLists()
+                    status = "준비 완료 — 프린터를 선택하고 슬라이스하세요 (\(printers.count)개 프린터 프로파일)"
+                }
+            } catch {
+                await MainActor.run {
+                    // Presets are optional: slicing still works with defaults.
+                    isReady = true
+                    status = "프로파일 로드 실패(기본 설정 사용): \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func refreshPresetLists() {
+        printers = OrcaSlicerCore.printerPresets()
+        processes = OrcaSlicerCore.processPresets()
+        filaments = OrcaSlicerCore.filamentPresets()
+        selectedPrinter = OrcaSlicerCore.selectedPrinter() ?? ""
+        selectedProcess = OrcaSlicerCore.selectedProcess() ?? ""
+        selectedFilament = OrcaSlicerCore.selectedFilament() ?? ""
+    }
+
+    // MARK: - Slicing
 
     private func sliceFile(at url: URL) {
         startSlicing(named: url.deletingPathExtension().lastPathComponent) { output in
@@ -106,6 +202,41 @@ struct ContentView: View {
                 await MainActor.run {
                     status = "실패: \(error.localizedDescription)"
                     isSlicing = false
+                }
+            }
+        }
+    }
+}
+
+/// Searchable full-screen preset chooser (1000+ entries need search, and a
+/// plain sheet List avoids the navigation-link Picker hit-testing quirks).
+private struct PresetPickerSheet: View {
+    let title: String
+    let items: [String]
+    let onPick: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filtered: [String] {
+        query.isEmpty ? items : items.filter { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filtered, id: \.self) { name in
+                Button {
+                    onPick(name)
+                    dismiss()
+                } label: {
+                    Text(name).foregroundStyle(.primary)
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("닫기") { dismiss() }
                 }
             }
         }

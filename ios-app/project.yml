@@ -13,6 +13,14 @@ targets:
     platform: iOS
     sources:
       - Sources
+      # System printer/process/filament profiles + misc data the core reads
+      # from its resources dir (bundled as folder references).
+      - path: ../resources/profiles
+        type: folder
+        buildPhase: resources
+      - path: ../resources/info
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: Frameworks/OrcaCore.xcframework
         embed: false
