@@ -291,16 +291,31 @@ struct ContentView: View {
     /// desktop's nozzle and plate cards next to the printer.
     private var printerDetailRow: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("노즐")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm")
-                    .foregroundStyle(.primary)
+            Menu {
+                ForEach(activePrinterNozzles, id: \.self) { nozzle in
+                    Button("\(nozzle) mm") { useNozzle(nozzle) }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("노즐")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if activePrinterNozzles.count > 1 {
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
+            .disabled(!isReady || isSlicing || activePrinterNozzles.count < 2)
 
             Menu {
                 ForEach(Array(bedTypes.enumerated()), id: \.offset) { _, item in
@@ -737,6 +752,14 @@ struct ContentView: View {
         }
     }
 
+    /// The printer the workspace is currently set to, when it came from the gallery.
+    private var activePrinter: MyPrinter? {
+        myPrinters.first { $0.id.uuidString == activePrinterID }
+    }
+
+    /// Nozzles the active printer's model can be used with.
+    private var activePrinterNozzles: [String] { activePrinter?.nozzles ?? [] }
+
     /// Switches the core to a printer picked from the gallery.
     private func usePrinter(_ printer: MyPrinter) {
         do {
@@ -748,6 +771,26 @@ struct ContentView: View {
             status = "\(printer.model) · \(printer.nozzle) mm 노즐"
         } catch {
             status = "프린터 선택 실패: \(error.localizedDescription)"
+        }
+    }
+
+    /// Switches the active printer to another of its model's nozzles, and
+    /// remembers it so the printer comes back with the same one next time.
+    private func useNozzle(_ nozzle: String) {
+        guard var printer = activePrinter, printer.nozzle != nozzle else { return }
+        printer.nozzle = nozzle
+        do {
+            try OrcaSlicerCore.selectPrinterModel(printer.model, nozzle: nozzle)
+            if let index = myPrinters.firstIndex(where: { $0.id == printer.id }) {
+                myPrinters[index] = printer
+                MyPrinterStore.save(myPrinters)
+            }
+            refreshPresetLists()
+            bedSize = OrcaSlicerCore.bedSize()
+            sceneRevision += 1
+            status = "\(printer.model) · \(nozzle) mm 노즐"
+        } catch {
+            status = "노즐 변경 실패: \(error.localizedDescription)"
         }
     }
 

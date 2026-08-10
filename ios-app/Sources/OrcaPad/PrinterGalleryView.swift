@@ -1,15 +1,27 @@
 import SwiftUI
 
-/// A printer the user has added, identified by its model and nozzle.
+/// A printer the user has added — one entry per model, not per nozzle. The
+/// nozzle is switched inside the workspace; this only remembers the last one.
 struct MyPrinter: Codable, Identifiable, Equatable {
     var id = UUID()
     var model: String
     var vendor: String
     var nozzle: String
 
+    var catalogModel: PrinterModel? {
+        PrinterCatalog.shared.models.first { $0.model == model }
+    }
+
     /// The bundled cover art for this model, if the vendor ships one.
-    var coverPath: String? {
-        PrinterCatalog.shared.models.first { $0.model == model }?.coverPath
+    var coverPath: String? { catalogModel?.coverPath }
+
+    /// Nozzles this model can be used with, for the workspace's nozzle picker.
+    var nozzles: [String] { catalogModel?.nozzles ?? [] }
+
+    init(model: String, vendor: String, nozzle: String) {
+        self.model = model
+        self.vendor = vendor
+        self.nozzle = nozzle
     }
 }
 
@@ -20,6 +32,10 @@ struct PrinterModel: Identifiable {
     let nozzles: [String]
     let coverPath: String?
     var id: String { model }
+
+    /// Nozzle to start with: the 0.4 mm most printers ship with, else the
+    /// smallest one the profiles offer.
+    var defaultNozzle: String { nozzles.first { $0 == "0.4" } ?? nozzles.first ?? "0.4" }
 
     init?(dictionary: [String: Any]) {
         guard let model = dictionary["model"] as? String else { return nil }
@@ -122,7 +138,7 @@ struct PrinterGalleryView: View {
                             onSelect(printer)
                         } label: {
                             PrinterCard(title: printer.model,
-                                        subtitle: "\(printer.nozzle) mm 노즐",
+                                        subtitle: printer.vendor,
                                         coverPath: printer.coverPath,
                                         highlighted: printer.id.uuidString == activeID)
                         }
@@ -173,9 +189,19 @@ struct PrinterGalleryView: View {
                 }
             }
         }
+        // On the very first run, go straight to picking a printer instead of
+        // making the user tap through an empty gallery.
+        .onAppear { if printers.isEmpty { showPicker = true } }
         .sheet(isPresented: $showPicker) {
-            PrinterModelPicker { model, nozzle in
-                let printer = MyPrinter(model: model.model, vendor: model.vendor, nozzle: nozzle)
+            // The first pick is mandatory, so it has nothing to cancel back to.
+            PrinterModelPicker(cancellable: !printers.isEmpty) { model in
+                // One entry per model — the nozzle is switched in the workspace.
+                if let existing = printers.first(where: { $0.model == model.model }) {
+                    onSelect(existing)
+                    return
+                }
+                let printer = MyPrinter(model: model.model, vendor: model.vendor,
+                                        nozzle: model.defaultNozzle)
                 printers.append(printer)
                 MyPrinterStore.save(printers)
                 onSelect(printer)
@@ -184,13 +210,14 @@ struct PrinterGalleryView: View {
     }
 }
 
-/// Searchable model gallery; picking a model then asks for the nozzle.
+/// Searchable model gallery. Picking a model adds it right away; the nozzle is
+/// chosen later in the workspace, so one model never needs several entries.
 private struct PrinterModelPicker: View {
-    let onPick: (PrinterModel, String) -> Void
+    var cancellable = true
+    let onPick: (PrinterModel) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var pendingModel: PrinterModel?
 
     private let columns = [GridItem(.adaptive(minimum: 190), spacing: 16)]
 
@@ -209,12 +236,8 @@ private struct PrinterModelPicker: View {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(filtered) { model in
                         Button {
-                            if model.nozzles.count == 1 {
-                                onPick(model, model.nozzles[0])
-                                dismiss()
-                            } else {
-                                pendingModel = model
-                            }
+                            onPick(model)
+                            dismiss()
                         } label: {
                             PrinterCard(title: model.model,
                                         subtitle: model.vendor,
@@ -230,23 +253,13 @@ private struct PrinterModelPicker: View {
             .navigationTitle("프린터 선택")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("취소") { dismiss() }
-                }
-            }
-            .confirmationDialog("노즐 지름", isPresented: Binding(
-                get: { pendingModel != nil },
-                set: { if !$0 { pendingModel = nil } }
-            ), titleVisibility: .visible) {
-                if let model = pendingModel {
-                    ForEach(model.nozzles, id: \.self) { nozzle in
-                        Button("\(nozzle) mm") {
-                            onPick(model, nozzle)
-                            dismiss()
-                        }
+                if cancellable {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("취소") { dismiss() }
                     }
                 }
             }
+            .interactiveDismissDisabled(!cancellable)
         }
     }
 }
