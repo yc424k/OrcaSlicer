@@ -38,7 +38,7 @@ enum PrinterStore {
         guard defaults.data(forKey: listKey) == nil,
               let host = defaults.string(forKey: "printerHost"), !host.isEmpty else { return }
         let printer = SavedPrinter(
-            name: "프린터 1",
+            name: "Printer 1",
             kind: defaults.string(forKey: "printerKind") ?? "moonraker",
             host: host,
             apiKey: defaults.string(forKey: "printerAPIKey") ?? ""
@@ -77,9 +77,9 @@ struct PrinterUploadView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("저장된 프린터") {
+                Section("Saved printers") {
                     if printers.isEmpty {
-                        Text("저장된 프린터가 없습니다 — 아래에서 추가하세요")
+                        Text("No saved printers — add one below")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(printers) { printer in
@@ -91,20 +91,20 @@ struct PrinterUploadView: View {
                     }
 
                     Button {
-                        editing = SavedPrinter(name: "새 프린터", kind: "moonraker", host: "http://")
+                        editing = SavedPrinter(name: "New printer", kind: "moonraker", host: "http://")
                         isNew = true
                     } label: {
-                        Label("프린터 추가", systemImage: "plus")
+                        Label("Add printer", systemImage: "plus")
                     }
                 }
 
-                Section("전송") {
+                Section("Send") {
                     Button {
                         startPrint.toggle()
                     } label: {
                         HStack {
                             Image(systemName: startPrint ? "checkmark.square.fill" : "square")
-                            Text("업로드 후 바로 출력 시작").foregroundStyle(.primary)
+                            Text("Start printing after upload").foregroundStyle(.primary)
                         }
                     }
                     .buttonStyle(.borderless)
@@ -115,7 +115,7 @@ struct PrinterUploadView: View {
                         if isUploading {
                             ProgressView().frame(maxWidth: .infinity)
                         } else {
-                            Label(selected.map { "\($0.name)(으)로 전송" } ?? "G-code 전송",
+                            Label(selected.map { "Send to \($0.name)" } ?? "Send G-code",
                                   systemImage: "paperplane.fill")
                                 .frame(maxWidth: .infinity)
                         }
@@ -129,11 +129,11 @@ struct PrinterUploadView: View {
                     }
                 }
             }
-            .navigationTitle("프린터로 전송")
+            .navigationTitle("Send to Printer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
             .onAppear {
@@ -172,7 +172,7 @@ struct PrinterUploadView: View {
                         if let test = testResults[printer.id] {
                             Text(test)
                                 .font(.caption)
-                                .foregroundStyle(test.hasPrefix("연결 성공") ? Color.orcaAccent : Color.red)
+                                .foregroundStyle(test.hasPrefix("Connected") ? Color.orcaAccent : Color.red)
                         }
                     }
                 }
@@ -214,10 +214,10 @@ struct PrinterUploadView: View {
 
     private func testConnection(_ printer: SavedPrinter) {
         guard let base = URL(string: printer.host) else {
-            testResults[printer.id] = "호스트 주소가 올바르지 않습니다"
+            testResults[printer.id] = "Host address is not valid"
             return
         }
-        testResults[printer.id] = "테스트 중…"
+        testResults[printer.id] = "Testing…"
 
         Task {
             var request: URLRequest
@@ -234,22 +234,22 @@ struct PrinterUploadView: View {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 var message: String
                 if (200...299).contains(code) {
-                    message = "연결 성공"
+                    message = "Connected"
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         if let info = json["result"] as? [String: Any],
                            let state = info["klippy_state"] as? String {
-                            message = "연결 성공 — Klipper \(state)"
+                            message = "Connected — Klipper \(state)"
                         } else if let server = json["server"] as? String {
-                            message = "연결 성공 — OctoPrint \(server)"
+                            message = "Connected — OctoPrint \(server)"
                         }
                     }
                 } else {
-                    message = "실패: HTTP \(code)"
+                    message = "Failed: HTTP \(code)"
                 }
                 await MainActor.run { testResults[printer.id] = message }
             } catch {
                 await MainActor.run {
-                    testResults[printer.id] = "실패: \(error.localizedDescription)"
+                    testResults[printer.id] = "Failed: \(error.localizedDescription)"
                 }
             }
         }
@@ -257,11 +257,11 @@ struct PrinterUploadView: View {
 
     private func upload() {
         guard let printer = selected, let base = URL(string: printer.host) else {
-            result = "프린터를 선택하세요"
+            result = "Select a printer"
             return
         }
         isUploading = true
-        result = "업로드 중…"
+        result = "Uploading…"
 
         Task {
             do {
@@ -300,13 +300,13 @@ struct PrinterUploadView: View {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 await MainActor.run {
                     result = (200...299).contains(code)
-                        ? "전송 완료 (\(filename))" + (startPrint ? " — 출력 시작됨" : "")
-                        : "실패: HTTP \(code)"
+                        ? "Sent (\(filename))" + (startPrint ? " — printing started" : "")
+                        : "Failed: HTTP \(code)"
                     isUploading = false
                 }
             } catch {
                 await MainActor.run {
-                    result = "실패: \(error.localizedDescription)"
+                    result = "Failed: \(error.localizedDescription)"
                     isUploading = false
                 }
             }
@@ -326,8 +326,8 @@ private struct PrinterEditSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("이름", text: $printer.name)
-                    Picker("종류", selection: $printer.kind) {
+                    TextField("Name", text: $printer.name)
+                    Picker("Type", selection: $printer.kind) {
                         Text("Moonraker (Klipper)").tag("moonraker")
                         Text("OctoPrint").tag("octoprint")
                     }
@@ -337,16 +337,16 @@ private struct PrinterEditSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if printer.kind == "octoprint" {
-                        TextField("API 키", text: $printer.apiKey)
+                        TextField("API key", text: $printer.apiKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
                 } footer: {
-                    Text("Klipper는 Moonraker 주소(보통 포트 7125 또는 웹 UI 주소)를 입력하세요. 사파리 버튼은 이 주소를 브라우저에서 엽니다.")
+                    Text("For Klipper, enter the Moonraker address (usually port 7125, or the web UI address). The Safari button opens that address in the browser.")
                 }
 
                 Section {
-                    Button(isNew ? "추가" : "저장") {
+                    Button(isNew ? "Add" : "Save") {
                         onSave(printer)
                         dismiss()
                     }
@@ -354,11 +354,11 @@ private struct PrinterEditSheet: View {
                     .disabled(printer.host.count < 8 || printer.name.isEmpty)
                 }
             }
-            .navigationTitle(isNew ? "프린터 추가" : "프린터 편집")
+            .navigationTitle(isNew ? "Add printer" : "Edit Printer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("취소") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
             }
         }

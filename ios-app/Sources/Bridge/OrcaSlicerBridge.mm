@@ -852,7 +852,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             s_calib_overrides.set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, start_temp));
             s_calib_overrides.set_key_value("nozzle_temperature", new ConfigOptionInts(1, start_temp));
             drop_on_bed_center(obj);
-            s_calib_label = @"온도 타워";
+            s_calib_label = @"Temperature tower";
         } else if ([mode isEqualToString:@"volspeed"]) {
             // Desktop Plater::calib_max_vol_speed.
             params.mode = CalibMode::Calib_Vol_speed_Tower;
@@ -895,7 +895,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             params.end   = end / mm3;
             params.step  = step / mm3;
             drop_on_bed_center(obj);
-            s_calib_label = @"최대 체적 속도";
+            s_calib_label = @"Max volumetric speed";
         } else if ([mode isEqualToString:@"retraction"]) {
             // Desktop Plater::calib_retraction.
             params.mode = CalibMode::Calib_Retraction_tower;
@@ -917,7 +917,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             if (height < obj->bounding_box_exact().size().z())
                 obj = calib_cut(obj, height, true);
             drop_on_bed_center(obj);
-            s_calib_label = @"리트랙션 타워";
+            s_calib_label = @"Retraction tower";
         } else if ([mode isEqualToString:@"vfa"]) {
             // Desktop Plater::calib_vfa (no nozzle-based resize).
             params.mode = CalibMode::Calib_VFA_Tower;
@@ -938,7 +938,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             s_calib_overrides.set_key_value("spiral_mode", new ConfigOptionBool(true));
             s_calib_overrides.set_key_value("precise_z_height", new ConfigOptionBool(false));
             drop_on_bed_center(obj);
-            s_calib_label = @"VFA (미세 진동)";
+            s_calib_label = @"VFA (fine artefacts)";
         } else if ([mode isEqualToString:@"pa_tower"]) {
             // Desktop Plater::_calib_pa_tower.
             params.mode = CalibMode::Calib_PA_Tower;
@@ -960,7 +960,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             if (height < obj->bounding_box_exact().size().z())
                 obj = calib_cut(obj, height, true);
             drop_on_bed_center(obj);
-            s_calib_label = @"PA 타워";
+            s_calib_label = @"Pressure advance tower";
         } else if ([mode isEqualToString:@"pa_line"]) {
             // Desktop Plater::calib_pa, PA line branch.
             params.mode = CalibMode::Calib_PA_Line;
@@ -968,7 +968,7 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             s_calib_overrides.set_key_value("overhang_reverse", new ConfigOptionBool(false));
             s_calib_overrides.set_key_value("precise_z_height", new ConfigOptionBool(false));
             drop_on_bed_center(obj);
-            s_calib_label = @"PA 라인";
+            s_calib_label = @"PA line";
         } else if ([mode hasPrefix:@"flow_"]) {
             // Desktop Plater::calib_flowrate + adjust_settings_for_flowrate_calib
             // (single extruder).
@@ -1072,8 +1072,8 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             s_calib_overrides.set_key_value("initial_layer_print_height", new ConfigOptionFloat(first_layer_height));
             s_calib_overrides.set_key_value("reduce_crossing_wall", new ConfigOptionBool(true));
             s_calib_overrides.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
-            s_calib_label = linear ? (pass == 1 ? @"유량 YOLO" : @"유량 YOLO (미세)")
-                                   : (pass == 1 ? @"유량 Pass 1" : @"유량 Pass 2");
+            s_calib_label = linear ? (pass == 1 ? @"Flow rate YOLO" : @"Flow rate YOLO (fine)")
+                                   : (pass == 1 ? @"Flow rate pass 1" : @"Flow rate pass 2");
         } else if ([mode isEqualToString:@"is_freq"] || [mode isEqualToString:@"is_damp"] ||
                    [mode isEqualToString:@"cornering"]) {
             // Desktop Plater::calib_input_shaping_freq / _damp / Calib_Cornering
@@ -1151,8 +1151,8 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             obj->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
             obj->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
             drop_on_bed_center(obj);
-            s_calib_label = cornering ? @"코너링" : (params.mode == CalibMode::Calib_Input_shaping_freq
-                                                     ? @"인풋 셰이핑 주파수" : @"인풋 셰이핑 댐핑");
+            s_calib_label = cornering ? @"Cornering" : (params.mode == CalibMode::Calib_Input_shaping_freq
+                                                     ? @"Input shaping frequency" : @"Input shaping damping");
         } else {
             throw std::runtime_error("unknown calibration mode");
         }

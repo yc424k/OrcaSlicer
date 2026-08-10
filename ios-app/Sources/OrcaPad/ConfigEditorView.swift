@@ -46,9 +46,9 @@ struct ConfigEditorPanel: View {
     @State private var query = ""
     @State private var revision = 0 // bumped to force rows to resync their buffers
     @State private var showSaveDialog = false
-    @State private var presetName = "내 프리셋"
+    @State private var presetName = "My preset"
 
-    private let tabs = [("process", "프로세스"), ("filament", "필라멘트"), ("printer", "프린터")]
+    private let tabs = [("process", "Process"), ("filament", "Filament"), ("printer", "Printer")]
 
     private var pages: [SettingsLayout.Page] { SettingsLayout.shared.pages(for: tab) }
 
@@ -72,7 +72,7 @@ struct ConfigEditorPanel: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Picker("탭", selection: $tab) {
+            Picker("Tab", selection: $tab) {
                 ForEach(tabs, id: \.0) { value, label in
                     Text(label).tag(value)
                 }
@@ -112,17 +112,17 @@ struct ConfigEditorPanel: View {
             .scrollContentBackground(.hidden)
         }
         .padding([.horizontal, .top], 12)
-        .alert("현재 설정을 프리셋으로 저장", isPresented: $showSaveDialog) {
-            TextField("프리셋 이름", text: $presetName)
-            Button("저장") {
+        .alert("Save current settings as preset", isPresented: $showSaveDialog) {
+            TextField("Preset name", text: $presetName)
+            Button("Save") {
                 if OrcaSlicerCore.saveCurrentPreset(as: presetName, tab: tab) {
                     reload()
                     onPresetSaved()
                 }
             }
-            Button("취소", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("사용자 프리셋은 다음 실행에도 유지됩니다")
+            Text("User presets are kept across launches")
         }
         .onChange(of: tab) { _ in
             page = SettingsLayout.shared.pages(for: tab).first?.title ?? ""
@@ -139,7 +139,7 @@ struct ConfigEditorPanel: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("설정 검색", text: $query)
+            TextField("Search settings", text: $query)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             if !query.isEmpty {
@@ -155,7 +155,7 @@ struct ConfigEditorPanel: View {
             } label: {
                 Image(systemName: "square.and.arrow.down")
             }
-            .help("현재 설정을 프리셋으로 저장")
+            .help("Save current settings as preset")
         }
         .padding(8)
         .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 8))

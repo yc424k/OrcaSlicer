@@ -381,7 +381,7 @@ struct PreviewLegendPanel: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             } else {
-                Text("이 모드에 표시할 값이 없습니다")
+                Text("No values to show in this mode")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

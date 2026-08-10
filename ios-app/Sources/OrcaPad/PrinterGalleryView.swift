@@ -147,7 +147,7 @@ struct PrinterGalleryView: View {
                                 printers.removeAll { $0.id == printer.id }
                                 MyPrinterStore.save(printers)
                             } label: {
-                                Label("삭제", systemImage: "trash")
+                                Label("Delete", systemImage: "trash")
                             }
                         }
                     }
@@ -164,7 +164,7 @@ struct PrinterGalleryView: View {
                                     .foregroundStyle(Color.orcaAccent)
                             }
                             .frame(height: 150)
-                            Text("프린터 추가").font(.callout)
+                            Text("Add Printer").font(.callout)
                             Text(" ").font(.caption)
                         }
                     }
@@ -172,18 +172,18 @@ struct PrinterGalleryView: View {
                 .padding(20)
             }
             .background(Color.orcaWindow)
-            .navigationTitle("내 프린터")
+            .navigationTitle("My Printers")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("닫기") { onClose() }
+                        Button("Close") { onClose() }
                     }
                 }
             }
             .overlay {
                 if printers.isEmpty {
-                    Text("사용할 프린터를 추가하세요")
+                    Text("Add a printer to get started")
                         .foregroundStyle(.secondary)
                         .offset(y: 140)
                 }
@@ -249,13 +249,13 @@ private struct PrinterModelPicker: View {
             }
             .background(Color.orcaWindow)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "제조사 또는 모델 검색")
-            .navigationTitle("프린터 선택")
+                        prompt: "Search vendor or model")
+            .navigationTitle("Select Printer")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if cancellable {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("취소") { dismiss() }
+                        Button("Cancel") { dismiss() }
                     }
                 }
             }

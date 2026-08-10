@@ -14,35 +14,35 @@ private struct CalibrationSaveSpec {
     static func spec(for mode: String) -> CalibrationSaveSpec? {
         switch mode {
         case "temp":
-            return .init(title: "최적 노즐 온도 저장",
-                         prompt: "가장 품질이 좋은 블록의 온도를 입력하세요",
+            return .init(title: "Save best nozzle temperature",
+                         prompt: "Enter the temperature of the best-looking block",
                          unit: "℃", tab: "filament",
                          keys: ["nozzle_temperature", "nozzle_temperature_initial_layer"])
         case "volspeed":
-            return .init(title: "최대 체적 속도 저장",
-                         prompt: "표면이 무너지기 직전 높이의 값(시작 + 스텝×높이mm)을 입력하세요",
+            return .init(title: "Save max volumetric speed",
+                         prompt: "Enter the value just below where the surface breaks down (start + step × height mm)",
                          unit: "mm³/s", tab: "filament",
                          keys: ["filament_max_volumetric_speed"])
         case "pa_tower", "pa_line":
-            return .init(title: "Pressure Advance 저장",
-                         prompt: "모서리/라인이 가장 깔끔한 지점의 PA 값을 입력하세요",
+            return .init(title: "Save pressure advance",
+                         prompt: "Enter the PA value where corners and lines look cleanest",
                          unit: "", tab: "filament",
                          keys: ["pressure_advance"])
         case "retraction":
-            return .init(title: "리트랙션 길이 저장",
-                         prompt: "스트링이 사라지는 높이의 값(시작 + 스텝×높이mm)을 입력하세요",
+            return .init(title: "Save retraction length",
+                         prompt: "Enter the value at the height where stringing disappears (start + step × height mm)",
                          unit: "mm", tab: "printer",
                          keys: ["retraction_length"])
         case "flow_p1", "flow_p2":
-            return .init(title: "유량비 저장",
-                         prompt: "가장 매끈한 블록의 숫자(-20~20)를 입력하세요 — 현재 유량비에 곱해 반영합니다",
+            return .init(title: "Save flow ratio",
+                         prompt: "Enter the number of the smoothest block (-20 to 20) — it is multiplied into the current flow ratio",
                          unit: "", tab: "filament",
                          keys: ["filament_flow_ratio"],
                          transform: { modifier, current in current * (1.0 + modifier / 100.0) },
                          currentKey: "filament_flow_ratio")
         case "flow_yolo1", "flow_yolo2":
-            return .init(title: "유량비 저장 (YOLO)",
-                         prompt: "가장 매끈한 블록의 숫자를 입력하세요 — 현재 유량비에 더해 반영합니다",
+            return .init(title: "Save flow ratio (YOLO)",
+                         prompt: "Enter the number of the smoothest block — it is added to the current flow ratio",
                          unit: "", tab: "filament",
                          keys: ["filament_flow_ratio"],
                          transform: { modifier, current in current + modifier },
@@ -80,7 +80,7 @@ struct CalibrationResultSheet: View {
                     }
                     Section {
                         HStack {
-                            Text("측정값")
+                            Text("Measured value")
                             Spacer()
                             TextField("", text: $value)
                                 .keyboardType(.numbersAndPunctuation)
@@ -94,7 +94,7 @@ struct CalibrationResultSheet: View {
                         Button {
                             apply(spec)
                         } label: {
-                            Label("설정에 적용", systemImage: "checkmark.circle")
+                            Label("Apply to settings", systemImage: "checkmark.circle")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -106,7 +106,7 @@ struct CalibrationResultSheet: View {
                                 .font(.callout)
                                 .foregroundStyle(applied ? Color.orcaAccent : .red)
                             if applied {
-                                Text("재시작 후에도 유지하려면 설정 편집의 \"현재 설정을 프리셋으로 저장\"으로 사용자 프리셋을 만드세요.")
+                                Text("To keep this across restarts, create a user preset with \"Save current settings as preset\" in the settings editor.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -114,17 +114,17 @@ struct CalibrationResultSheet: View {
                     }
                 } else {
                     Section {
-                        Text("이 테스트(\(label))의 결과는 슬라이서 설정이 아니라 프린터 펌웨어에 반영합니다. Klipper라면 printer.cfg의 input shaper / square corner velocity 값을 수정하세요.")
+                        Text("The result of this test (\(label)) belongs in the printer firmware, not the slicer settings. On Klipper, edit the input shaper / square corner velocity values in printer.cfg.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .navigationTitle(spec?.title ?? "\(label) 결과")
+            .navigationTitle(spec?.title ?? "\(label) result")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
         }
@@ -150,8 +150,8 @@ struct CalibrationResultSheet: View {
         }
         applied = ok
         message = ok
-            ? "적용됨 — \(spec.keys.joined(separator: ", ")) = \(String(format: "%g", final))"
-            : "적용 실패 — 값을 확인하세요"
+            ? "Applied — \(spec.keys.joined(separator: ", ")) = \(String(format: "%g", final))"
+            : "Could not apply — check the value"
         if ok { onSaved() }
     }
 }

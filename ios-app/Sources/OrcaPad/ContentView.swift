@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// strip — mirroring the desktop arrangement.
 struct ContentView: View {
     // MARK: Core / preset state
-    @State private var status = "프로파일 로딩 중…"
+    @State private var status = "Loading profiles…"
     @State private var isSlicing = false
     @State private var isReady = false
     @State private var printers: [String] = []
@@ -18,7 +18,7 @@ struct ContentView: View {
     @State private var selectedFilament = ""
 
     private enum PickerKind: String, Identifiable {
-        case printer = "프린터", filament = "필라멘트", process = "프로세스"
+        case printer = "Printer", filament = "Filament", process = "Process"
         var id: String { rawValue }
     }
     @State private var activePicker: PickerKind?
@@ -160,7 +160,7 @@ struct ContentView: View {
                 selectedObject = objects.first?.index ?? 0
                 sceneRevision += 1
                 centerMode = .scene
-                status = "\(kind.name) 준비됨 — 슬라이스하세요"
+                status = "\(kind.name) ready — slice to generate"
             }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.data, .item]) { result in
@@ -195,9 +195,9 @@ struct ContentView: View {
             }
             .disabled(!isReady || isSlicing)
 
-            Picker("모드", selection: $centerMode) {
-                Text("준비").tag(CenterMode.scene)
-                Text("프리뷰").tag(CenterMode.preview)
+            Picker("Mode", selection: $centerMode) {
+                Text("Prepare").tag(CenterMode.scene)
+                Text("Preview").tag(CenterMode.preview)
             }
             .pickerStyle(.segmented)
             .frame(width: 220)
@@ -213,11 +213,11 @@ struct ContentView: View {
                     Button {
                         showCalibrationResult = true
                     } label: {
-                        Label("결과 저장…", systemImage: "checkmark.seal")
+                        Label("Save result…", systemImage: "checkmark.seal")
                     }
                 }
             } label: {
-                Label("캘리브레이션", systemImage: "gauge.with.needle")
+                Label("Calibration", systemImage: "gauge.with.needle")
             }
             .disabled(!isReady || isSlicing)
 
@@ -228,7 +228,7 @@ struct ContentView: View {
                     .frame(width: 120)
                 Text("\(max(sliceProgress, 0))%")
                     .font(.callout.monospacedDigit())
-                Button("취소", role: .destructive) {
+                Button("Cancel", role: .destructive) {
                     OrcaSlicerCore.cancelSlicing()
                 }
             } else {
@@ -240,7 +240,7 @@ struct ContentView: View {
                 Button {
                     sliceScene()
                 } label: {
-                    Label("슬라이스", systemImage: "cube.fill")
+                    Label("Slice", systemImage: "cube.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!isReady || objects.isEmpty)
@@ -249,13 +249,13 @@ struct ContentView: View {
                     Button {
                         showUpload = true
                     } label: {
-                        Label("프린터로 전송", systemImage: "paperplane")
+                        Label("Send to printer", systemImage: "paperplane")
                     }
                     .disabled(gcodeURL == nil)
 
                     if let gcodeURL {
                         ShareLink(item: gcodeURL) {
-                            Label("G-code 내보내기", systemImage: "square.and.arrow.up")
+                            Label("Export G-code", systemImage: "square.and.arrow.up")
                         }
                     }
 
@@ -264,13 +264,13 @@ struct ContentView: View {
                     Button {
                         saveProject()
                     } label: {
-                        Label("프로젝트 저장 (3MF)", systemImage: "doc.badge.plus")
+                        Label("Save project (3MF)", systemImage: "doc.badge.plus")
                     }
                     .disabled(objects.isEmpty)
 
                     if let projectURL {
                         ShareLink(item: projectURL) {
-                            Label("프로젝트 내보내기", systemImage: "square.and.arrow.up.on.square")
+                            Label("Export project", systemImage: "square.and.arrow.up.on.square")
                         }
                     }
                 } label: {
@@ -289,10 +289,10 @@ struct ContentView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
-                presetRow(title: "프린터", icon: "printer", value: selectedPrinter, kind: .printer)
+                presetRow(title: "Printer", icon: "printer", value: selectedPrinter, kind: .printer)
                 printerDetailRow
                 filamentRow
-                presetRow(title: "프로세스 (품질)", icon: "gearshape.2", value: selectedProcess, kind: .process)
+                presetRow(title: "Process (quality)", icon: "gearshape.2", value: selectedProcess, kind: .process)
             }
             .padding(12)
 
@@ -315,7 +315,7 @@ struct ContentView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("노즐")
+                    Text("Nozzle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
@@ -345,7 +345,7 @@ struct ContentView: View {
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("베드")
+                    Text("Bed")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
@@ -377,10 +377,10 @@ struct ContentView: View {
                     .frame(width: 22, height: 22)
                     .background(Color.orcaAccent.opacity(0.25), in: RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("필라멘트")
+                    Text("Filament")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(selectedFilament.isEmpty ? "선택 안 됨" : selectedFilament)
+                    Text(selectedFilament.isEmpty ? "Not selected" : selectedFilament)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
@@ -410,7 +410,7 @@ struct ContentView: View {
                     Text(title)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(value.isEmpty ? "선택 안 됨" : value)
+                    Text(value.isEmpty ? "Not selected" : value)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
@@ -445,7 +445,7 @@ struct ContentView: View {
                         range: previewRange
                     )
                 } else {
-                    Text("슬라이스하면 프리뷰가 표시됩니다").foregroundStyle(.secondary)
+                    Text("Slice to see the preview").foregroundStyle(.secondary)
                 }
             }
 
@@ -497,7 +497,7 @@ struct ContentView: View {
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
                             .padding(.bottom, 12)
                     } else {
-                        Text("왼쪽 위 도구로 모델 파일이나 테스트 큐브를 추가하세요")
+                        Text("Use the tools at the top left to add a model or a test cube")
                             .padding(10)
                             .background(.regularMaterial, in: Capsule())
                             .padding(.bottom, 16)
@@ -537,8 +537,8 @@ struct ContentView: View {
 
     /// Preset names for the legend's Summary mode.
     private var presetSummary: [(String, String)] {
-        [("프린터", selectedPrinter), ("노즐", nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm"),
-         ("필라멘트", selectedFilament), ("프로세스", selectedProcess)]
+        [("Printer", selectedPrinter), ("Nozzle", nozzleDiameter.isEmpty ? "—" : "\(nozzleDiameter) mm"),
+         ("Filament", selectedFilament), ("Process", selectedProcess)]
     }
 
     private var sceneControls: some View {
@@ -571,10 +571,10 @@ struct ContentView: View {
                 transformSlider("Y", value: object.positionY, range: 0...maxY, unit: "mm") {
                     apply(positionY: $0)
                 }
-                transformSlider("회전", value: object.rotationZ, range: 0...360, unit: "°") {
+                transformSlider("Rotate", value: object.rotationZ, range: 0...360, unit: "°") {
                     apply(rotationZ: $0)
                 }
-                transformSlider("크기", value: object.scale * 100, range: 10...300, unit: "%") {
+                transformSlider("Scale", value: object.scale * 100, range: 10...300, unit: "%") {
                     apply(scale: $0 / 100)
                 }
             }
@@ -652,14 +652,14 @@ struct ContentView: View {
                 refreshPresetLists()
                 bedSize = OrcaSlicerCore.bedSize()
                 reloadScene()
-                status = "프로젝트 열림: \(url.lastPathComponent) — \(objects.count)개 오브젝트"
+                status = "Opened \(url.lastPathComponent) — \(objects.count) object(s)"
                 return
             }
             try OrcaSlicerCore.addModelToScene(atPath: input.path)
             reloadScene()
-            status = "\(url.lastPathComponent) 추가됨 — 씬에 \(objects.count)개 오브젝트"
+            status = "Added \(url.lastPathComponent) — \(objects.count) object(s) in the scene"
         } catch {
-            status = "가져오기 실패: \(error.localizedDescription)"
+            status = "Import failed: \(error.localizedDescription)"
         }
     }
 
@@ -671,15 +671,15 @@ struct ContentView: View {
             try OrcaSlicerCore.saveProject(toPath: output.path)
             projectURL = output
             let bytes = (try? FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int) ?? 0
-            status = "프로젝트 저장됨 — \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
+            status = "Project saved — \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))"
         } catch {
-            status = "저장 실패: \(error.localizedDescription)"
+            status = "Save failed: \(error.localizedDescription)"
         }
     }
 
     private func sliceScene() {
         isSlicing = true
-        status = "슬라이싱 중…"
+        status = "Slicing…"
         gcodeURL = nil
         previewData = nil
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("scene.gcode")
@@ -702,22 +702,22 @@ struct ContentView: View {
                 }
             } catch {
                 await MainActor.run {
-                    status = "실패: \(error.localizedDescription)"
+                    status = "Failed: \(error.localizedDescription)"
                     isSlicing = false
                 }
             }
         }
     }
 
-    /// "23분 · 2.1m · 6.3g" style summary of the print estimates.
+    /// "23m · 2.1m · 6.3g" style summary of the print estimates.
     /// nonisolated: formatted on the slicing task before hopping to the main actor.
     private nonisolated static func sliceSummary(stats: [String: NSNumber]?) -> String {
-        guard let stats else { return "완료" }
+        guard let stats else { return "Done" }
         var parts: [String] = []
         if let time = stats["time"]?.doubleValue, time > 0 {
             let hours = Int(time) / 3600
             let minutes = (Int(time) % 3600 + 59) / 60
-            parts.append(hours > 0 ? "\(hours)시간 \(minutes)분" : "\(minutes)분")
+            parts.append(hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m")
         }
         if let mm = stats["filamentMM"]?.doubleValue, mm > 0 {
             parts.append(String(format: "%.1fm", mm / 1000))
@@ -725,7 +725,7 @@ struct ContentView: View {
         if let grams = stats["filamentG"]?.doubleValue, grams > 0 {
             parts.append(String(format: "%.1fg", grams))
         }
-        return parts.isEmpty ? "완료" : "완료 — " + parts.joined(separator: " · ")
+        return parts.isEmpty ? "Done" : "Done — " + parts.joined(separator: " · ")
     }
 
     // MARK: - Core lifecycle
@@ -751,7 +751,7 @@ struct ContentView: View {
                     refreshPresetLists()
                     bedSize = OrcaSlicerCore.bedSize()
                     reloadScene()
-                    status = "준비 완료 — \(printers.count)개 프린터 프로파일"
+                    status = "Ready — \(printers.count) printer profiles"
                     // Test hook: automated UI runs seed this defaults key to
                     // import a model without driving the document picker.
                     if let path = UserDefaults.standard.string(forKey: "debugImportPath"),
@@ -763,7 +763,7 @@ struct ContentView: View {
                 await MainActor.run {
                     // Presets are optional: slicing still works with defaults.
                     isReady = true
-                    status = "프로파일 로드 실패(기본 설정 사용): \(error.localizedDescription)"
+                    status = "Profile load failed (using defaults): \(error.localizedDescription)"
                 }
             }
         }
@@ -785,9 +785,9 @@ struct ContentView: View {
             refreshPresetLists()
             bedSize = OrcaSlicerCore.bedSize()
             sceneRevision += 1
-            status = "\(printer.model) · \(printer.nozzle) mm 노즐"
+            status = "\(printer.model) · \(printer.nozzle) mm nozzle"
         } catch {
-            status = "프린터 선택 실패: \(error.localizedDescription)"
+            status = "Printer selection failed: \(error.localizedDescription)"
         }
     }
 
@@ -805,9 +805,9 @@ struct ContentView: View {
             refreshPresetLists()
             bedSize = OrcaSlicerCore.bedSize()
             sceneRevision += 1
-            status = "\(printer.model) · \(nozzle) mm 노즐"
+            status = "\(printer.model) · \(nozzle) mm nozzle"
         } catch {
-            status = "노즐 변경 실패: \(error.localizedDescription)"
+            status = "Nozzle change failed: \(error.localizedDescription)"
         }
     }
 
@@ -865,7 +865,7 @@ struct PresetPickerSheet: View {
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
         }
