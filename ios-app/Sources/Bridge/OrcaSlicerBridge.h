@@ -128,6 +128,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// operation (import, add cube, clear) disarms it.
 + (nullable NSString *)activeCalibration;
 
+/// Mode key of the armed calibration ("temp", "pa_tower", …), nil when none.
++ (nullable NSString *)activeCalibrationMode;
+
+/// Current (edited) serialized value of one option, nil when unavailable.
++ (nullable NSString *)configValueForKey:(NSString *)key tab:(NSString *)tab;
+
 #pragma mark - Toolpath preview
 
 /// Toolpath vertices of the last successful slice, for the 3D preview:

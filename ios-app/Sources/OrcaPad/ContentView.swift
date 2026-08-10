@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var showImporter = false
     @State private var presetsRevision = 0 // reload token for the embedded editor
     @State private var activeCalibration: CalibrationKind?
+    @State private var showCalibrationResult = false
 
     // MARK: Scene state
     @State private var objects: [SceneObject] = []
@@ -51,21 +52,29 @@ struct ContentView: View {
     @State private var centerMode: CenterMode = .scene
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Divider()
-            HStack(spacing: 0) {
-                if showSidebar {
-                    sidebar
-                        .frame(width: 360)
-                        .transition(.move(edge: .leading))
-                    Divider()
+        ZStack {
+            VStack(spacing: 0) {
+                topBar
+                Divider()
+                HStack(spacing: 0) {
+                    if showSidebar {
+                        sidebar
+                            .frame(width: 360)
+                            .transition(.move(edge: .leading))
+                        Divider()
+                    }
+                    viewport
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                viewport
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if !isReady {
+                LaunchLoadingView(status: status)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSidebar)
+        .animation(.easeOut(duration: 0.4), value: isReady)
         .background(Color.orcaWindow)
         .task { initializeCore() }
         .task(id: isSlicing) {
@@ -84,6 +93,14 @@ struct ContentView: View {
         .sheet(item: $activePicker) { kind in
             PresetPickerSheet(title: kind.rawValue, items: items(for: kind)) { name in
                 select(name, for: kind)
+            }
+        }
+        .sheet(isPresented: $showCalibrationResult) {
+            CalibrationResultSheet(
+                mode: OrcaSlicerCore.activeCalibrationMode() ?? "",
+                label: OrcaSlicerCore.activeCalibration() ?? ""
+            ) {
+                presetsRevision += 1 // the settings editor shows the new value
             }
         }
         .sheet(item: $activeCalibration) { kind in
@@ -131,6 +148,14 @@ struct ContentView: View {
                 ForEach(CalibrationKind.all) { kind in
                     Button(kind.name) {
                         activeCalibration = kind
+                    }
+                }
+                if OrcaSlicerCore.activeCalibrationMode() != nil {
+                    Divider()
+                    Button {
+                        showCalibrationResult = true
+                    } label: {
+                        Label("결과 저장…", systemImage: "checkmark.seal")
                     }
                 }
             } label: {

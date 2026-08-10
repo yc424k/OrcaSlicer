@@ -44,6 +44,7 @@ static std::mutex            s_active_print_mutex;
 static Calib_Params          s_calib_params;
 static DynamicPrintConfig    s_calib_overrides;
 static NSString             *s_calib_label = nil;
+static NSString             *s_calib_mode_id = nil;
 
 static void reset_calibration()
 {
@@ -51,6 +52,7 @@ static void reset_calibration()
     s_calib_params.mode = CalibMode::Calib_None;
     s_calib_overrides   = DynamicPrintConfig();
     s_calib_label       = nil;
+    s_calib_mode_id     = nil;
 }
 
 static Model &scene()
@@ -988,7 +990,8 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
             throw std::runtime_error("unknown calibration mode");
         }
 
-        s_calib_params = params;
+        s_calib_params  = params;
+        s_calib_mode_id = mode;
         return YES;
     } catch (const std::exception &ex) {
         reset_calibration();
@@ -1003,6 +1006,24 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
 + (NSString *)activeCalibration
 {
     return s_calib_label;
+}
+
++ (NSString *)activeCalibrationMode
+{
+    return s_calib_mode_id;
+}
+
++ (NSString *)configValueForKey:(NSString *)key tab:(NSString *)tab
+{
+    PresetCollection *coll = collection_for_tab(tab);
+    if (!coll) return nil;
+    try {
+        const DynamicPrintConfig &config = coll->get_edited_preset().config;
+        if (!config.has(key.UTF8String)) return nil;
+        return @(config.opt_serialize(key.UTF8String).c_str());
+    } catch (const std::exception &) {
+        return nil;
+    }
 }
 
 #pragma mark - Slicing progress & stats
