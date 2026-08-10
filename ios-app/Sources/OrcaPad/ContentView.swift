@@ -278,7 +278,7 @@ struct ContentView: View {
                 if let previewData {
                     SceneKitToolpathView(
                         toolpaths: previewData,
-                        maxZ: previewData.zForLayerFraction(layerFraction),
+                        maxLayer: previewData.layerIndex(for: layerFraction),
                         showTravels: showTravels
                     )
                 } else {

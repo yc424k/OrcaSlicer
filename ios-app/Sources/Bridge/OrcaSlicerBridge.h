@@ -140,6 +140,8 @@ NS_ASSUME_NONNULL_BEGIN
 ///  "positions" — float32 x,y,z per vertex (mm)
 ///  "types"     — uint8 per vertex (GCodeProcessor EMoveType; 8=Travel, 10=Extrude)
 ///  "roles"     — uint8 per vertex (ExtrusionRole)
+///  "widths"    — float32 extrusion width per vertex (mm, 0 for travels)
+///  "heights"   — float32 extrusion height per vertex (mm, 0 for travels)
 /// Returns nil when nothing has been sliced yet.
 + (nullable NSDictionary<NSString *, NSData *> *)lastToolpaths;
 

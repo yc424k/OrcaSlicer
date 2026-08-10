@@ -1081,10 +1081,14 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
     NSMutableData *positions = [NSMutableData dataWithLength:count * 3 * sizeof(float)];
     NSMutableData *types     = [NSMutableData dataWithLength:count];
     NSMutableData *roles     = [NSMutableData dataWithLength:count];
+    NSMutableData *widths    = [NSMutableData dataWithLength:count * sizeof(float)];
+    NSMutableData *heights   = [NSMutableData dataWithLength:count * sizeof(float)];
 
-    float   *pos  = static_cast<float *>(positions.mutableBytes);
-    uint8_t *type = static_cast<uint8_t *>(types.mutableBytes);
-    uint8_t *role = static_cast<uint8_t *>(roles.mutableBytes);
+    float   *pos    = static_cast<float *>(positions.mutableBytes);
+    uint8_t *type   = static_cast<uint8_t *>(types.mutableBytes);
+    uint8_t *role   = static_cast<uint8_t *>(roles.mutableBytes);
+    float   *width  = static_cast<float *>(widths.mutableBytes);
+    float   *height = static_cast<float *>(heights.mutableBytes);
 
     for (size_t i = 0; i < count; ++i) {
         const auto &m = moves[i];
@@ -1093,9 +1097,17 @@ static ModelObject *calib_cut(ModelObject *object, double z, bool keep_lower)
         pos[i * 3 + 2] = m.position.z();
         type[i]        = static_cast<uint8_t>(m.type);
         role[i]        = static_cast<uint8_t>(m.extrusion_role);
+        width[i]       = m.width;
+        height[i]      = m.height;
     }
 
-    return @{@"positions" : positions, @"types" : types, @"roles" : roles};
+    return @{
+        @"positions" : positions,
+        @"types" : types,
+        @"roles" : roles,
+        @"widths" : widths,
+        @"heights" : heights,
+    };
 }
 
 @end
