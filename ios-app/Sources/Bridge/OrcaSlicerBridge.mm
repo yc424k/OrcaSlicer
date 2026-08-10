@@ -219,6 +219,71 @@ static void run_print_pipeline(Model &model, const char *output_path)
     return s_bundle ? collect_presets(s_bundle->filaments, true) : @[];
 }
 
++ (NSArray<NSDictionary<NSString *, id> *> *)printerModels
+{
+    if (!s_bundle) return @[];
+
+    // Group the system printer presets by printer_model; each model's
+    // variants are its nozzle diameters.
+    NSMutableDictionary<NSString *, NSMutableDictionary *> *models = [NSMutableDictionary dictionary];
+    for (const Preset &preset : s_bundle->printers) {
+        if (!preset.is_system) continue;
+        const auto *model_opt = preset.config.option<ConfigOptionString>("printer_model");
+        if (!model_opt || model_opt->value.empty()) continue;
+
+        NSString *model  = @(model_opt->value.c_str());
+        const auto *variant_opt = preset.config.option<ConfigOptionString>("printer_variant");
+        const auto *nozzle_opt  = preset.config.option<ConfigOptionFloats>("nozzle_diameter");
+        std::string variant = variant_opt ? variant_opt->value : "";
+        if (variant.empty() && nozzle_opt && !nozzle_opt->values.empty())
+            variant = float_to_string_decimal_point(nozzle_opt->values.front());
+        if (variant.empty()) continue;
+
+        NSMutableDictionary *entry = models[model];
+        if (!entry) {
+            entry = [NSMutableDictionary dictionary];
+            entry[@"model"]   = model;
+            entry[@"vendor"]  = @(preset.vendor ? preset.vendor->name.c_str() : "");
+            entry[@"presets"] = [NSMutableDictionary dictionary];
+            models[model]     = entry;
+        }
+        entry[@"presets"][@(variant.c_str())] = @(preset.name.c_str());
+    }
+
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSMutableDictionary *entry in models.allValues) {
+        NSDictionary *presets = entry[@"presets"];
+        entry[@"nozzles"] = [presets.allKeys sortedArrayUsingComparator:^(NSString *a, NSString *b) {
+            return [@(a.doubleValue) compare:@(b.doubleValue)];
+        }];
+        // Vendor cover art lives next to the profile: <vendor>/<model>_cover.png
+        NSString *cover = [NSString stringWithFormat:@"%s/profiles/%@/%@_cover.png",
+                                                     resources_dir().c_str(),
+                                                     entry[@"vendor"], entry[@"model"]];
+        if ([NSFileManager.defaultManager fileExistsAtPath:cover])
+            entry[@"coverPath"] = cover;
+        [result addObject:entry];
+    }
+    [result sortUsingComparator:^(NSDictionary *a, NSDictionary *b) {
+        NSComparisonResult vendors = [a[@"vendor"] compare:b[@"vendor"]];
+        return vendors == NSOrderedSame ? [a[@"model"] compare:b[@"model"]] : vendors;
+    }];
+    return result;
+}
+
++ (BOOL)selectPrinterModel:(NSString *)model nozzle:(NSString *)nozzle error:(NSError **)error
+{
+    for (NSDictionary *entry in [self printerModels]) {
+        if (![entry[@"model"] isEqualToString:model]) continue;
+        NSString *preset = entry[@"presets"][nozzle];
+        if (!preset) break;
+        return [self selectPrinter:preset error:error];
+    }
+    if (error) *error = make_error(std::string("no preset for ") + model.UTF8String +
+                                   " with a " + nozzle.UTF8String + " mm nozzle");
+    return NO;
+}
+
 + (NSString *)selectedPrinter
 {
     return s_bundle ? [NSString stringWithUTF8String:s_bundle->printers.get_selected_preset_name().c_str()] : nil;

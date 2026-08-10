@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var presetsRevision = 0 // reload token for the embedded editor
     @State private var activeCalibration: CalibrationKind?
     @State private var showCalibrationResult = false
+    @State private var myPrinters: [MyPrinter] = []
+    @State private var showPrinterGallery = false
+    @AppStorage("activePrinterID") private var activePrinterID = ""
     @State private var projectURL: URL?
     @State private var nozzleDiameter = ""
     @State private var bedType = ""
@@ -92,6 +95,17 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        // First run has no printer yet, so the gallery is the start screen and
+        // cannot be dismissed until one is picked.
+        .fullScreenCover(isPresented: Binding(
+            get: { isReady && !showSplash && (myPrinters.isEmpty || showPrinterGallery) },
+            set: { if !$0 { showPrinterGallery = false } }
+        )) {
+            PrinterGalleryView(printers: $myPrinters, activeID: activePrinterID, onSelect: { printer in
+                usePrinter(printer)
+                showPrinterGallery = false
+            }, onClose: myPrinters.isEmpty ? nil : { showPrinterGallery = false })
+        }
         .animation(.easeInOut(duration: 0.2), value: showSidebar)
         .animation(.easeOut(duration: 0.4), value: showSplash)
         .background(Color.orcaWindow)
@@ -155,6 +169,13 @@ struct ContentView: View {
 
             Text("OrcaPad")
                 .font(.headline)
+
+            Button {
+                showPrinterGallery = true
+            } label: {
+                Image(systemName: "printer.filled.and.paper")
+            }
+            .disabled(!isReady || isSlicing)
 
             Picker("모드", selection: $centerMode) {
                 Text("준비").tag(CenterMode.scene)
@@ -686,11 +707,15 @@ struct ContentView: View {
                 try OrcaSlicerCore.initialize(withResourcesPath: resources, dataPath: data)
                 await MainActor.run {
                     isReady = true
-                    refreshPresetLists()
-                    // Restore last session's preset selections.
-                    if !storedPrinter.isEmpty { try? OrcaSlicerCore.selectPrinter(storedPrinter) }
-                    if !storedProcess.isEmpty { try? OrcaSlicerCore.selectProcess(storedProcess) }
-                    if !storedFilament.isEmpty { try? OrcaSlicerCore.selectFilament(storedFilament) }
+                    PrinterCatalog.shared.load()
+                    myPrinters = MyPrinterStore.load()
+                    // Restore last session's preset selections. Read them before
+                    // refreshPresetLists(), which writes the core's current
+                    // (still default) selection back into the same storage.
+                    let (wantPrinter, wantProcess, wantFilament) = (storedPrinter, storedProcess, storedFilament)
+                    if !wantPrinter.isEmpty { try? OrcaSlicerCore.selectPrinter(wantPrinter) }
+                    if !wantProcess.isEmpty { try? OrcaSlicerCore.selectProcess(wantProcess) }
+                    if !wantFilament.isEmpty { try? OrcaSlicerCore.selectFilament(wantFilament) }
                     refreshPresetLists()
                     bedSize = OrcaSlicerCore.bedSize()
                     reloadScene()
@@ -709,6 +734,20 @@ struct ContentView: View {
                     status = "프로파일 로드 실패(기본 설정 사용): \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    /// Switches the core to a printer picked from the gallery.
+    private func usePrinter(_ printer: MyPrinter) {
+        do {
+            try OrcaSlicerCore.selectPrinterModel(printer.model, nozzle: printer.nozzle)
+            activePrinterID = printer.id.uuidString
+            refreshPresetLists()
+            bedSize = OrcaSlicerCore.bedSize()
+            sceneRevision += 1
+            status = "\(printer.model) · \(printer.nozzle) mm 노즐"
+        } catch {
+            status = "프린터 선택 실패: \(error.localizedDescription)"
         }
     }
 

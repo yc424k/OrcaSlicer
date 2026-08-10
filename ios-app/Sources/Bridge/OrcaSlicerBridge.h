@@ -25,6 +25,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// Filament presets compatible with the selected printer.
 + (NSArray<NSString *> *)filamentPresets;
 
+/// Printer models from the bundled vendor profiles, one entry per model:
+/// { model, vendor, nozzles (sorted strings), presets (nozzle -> preset name),
+///   coverPath (may be absent) }.
++ (NSArray<NSDictionary<NSString *, id> *> *)printerModels;
+
+/// Selects the system printer preset for a model and nozzle diameter.
++ (BOOL)selectPrinterModel:(NSString *)model
+                    nozzle:(NSString *)nozzle
+                     error:(NSError **)error;
+
 + (nullable NSString *)selectedPrinter;
 + (nullable NSString *)selectedProcess;
 + (nullable NSString *)selectedFilament;
