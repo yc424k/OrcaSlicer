@@ -21,8 +21,8 @@ struct ContentView: View {
         var id: String { rawValue }
     }
     @State private var activePicker: PickerKind?
-    @State private var showConfigEditor = false
     @State private var showImporter = false
+    @State private var presetsRevision = 0 // reload token for the embedded editor
 
     // MARK: Scene state
     @State private var objects: [SceneObject] = []
@@ -48,13 +48,15 @@ struct ContentView: View {
     @State private var showRightPanel = true
     private enum CenterMode { case scene, preview }
     @State private var centerMode: CenterMode = .scene
+    private enum LeftTab { case settings, results }
+    @State private var leftTab: LeftTab = .settings
 
     var body: some View {
         NavigationStack {
             HStack(spacing: 0) {
                 if showLeftPanel {
                     leftPanel
-                        .frame(width: 300)
+                        .frame(width: 360)
                         .transition(.move(edge: .leading))
                     Divider()
                 }
@@ -121,9 +123,6 @@ struct ContentView: View {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
             sliceProgress = -1
-        }
-        .sheet(isPresented: $showConfigEditor, onDismiss: { refreshPresetLists() }) {
-            ConfigEditorView()
         }
         .sheet(isPresented: $showUpload) {
             if let gcodeURL {
@@ -284,11 +283,29 @@ struct ContentView: View {
     // MARK: - Left panel (slice & results)
 
     private var leftPanel: some View {
+        VStack(spacing: 0) {
+            Picker("패널", selection: $leftTab) {
+                Text("설정 편집").tag(LeftTab.settings)
+                Text("프리뷰").tag(LeftTab.results)
+            }
+            .pickerStyle(.segmented)
+            .padding([.horizontal, .top], 12)
+
+            switch leftTab {
+            case .settings:
+                ConfigEditorPanel(reloadToken: presetsRevision) {
+                    refreshPresetLists()
+                }
+            case .results:
+                resultsPanel
+            }
+        }
+        .background(Color.orcaPanel)
+    }
+
+    private var resultsPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("프리뷰")
-                    .font(.headline)
-
                 if previewData == nil {
                     Text("슬라이스하면 결과가 여기에 표시됩니다")
                         .font(.callout)
@@ -346,7 +363,6 @@ struct ContentView: View {
             }
             .padding()
         }
-        .background(Color.orcaPanel)
     }
 
     // MARK: - Right panel (settings)
@@ -361,22 +377,9 @@ struct ContentView: View {
                 presetRow(title: "프로세스 (품질)", value: selectedProcess, kind: .process)
                 presetRow(title: "필라멘트", value: selectedFilament, kind: .filament)
 
-                Divider()
-
-                Button {
-                    showConfigEditor = true
-                } label: {
-                    HStack {
-                        Label("설정 편집", systemImage: "slider.horizontal.3")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(10)
-                    .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 10))
-                }
-                .disabled(!isReady || isSlicing)
+                Text("개별 파라미터는 왼쪽 패널의 설정 편집에서 수정합니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
             }
@@ -428,6 +431,7 @@ struct ContentView: View {
         refreshPresetLists()
         bedSize = OrcaSlicerCore.bedSize()
         sceneRevision += 1 // bed may have changed with the printer
+        presetsRevision += 1 // the embedded editor re-reads the new preset values
     }
 
     private func apply(positionX: Double? = nil, positionY: Double? = nil,
@@ -485,6 +489,7 @@ struct ContentView: View {
                     previewData = toolpaths
                     layerFraction = 1.0
                     centerMode = toolpaths != nil ? .preview : .scene
+                    leftTab = .results // surface the results panel
                     status = summary
                     isSlicing = false
                 }
@@ -568,6 +573,7 @@ struct ContentView: View {
         storedPrinter = selectedPrinter
         storedProcess = selectedProcess
         storedFilament = selectedFilament
+        presetsRevision += 1 // the embedded editor re-reads current values
     }
 }
 

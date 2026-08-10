@@ -32,10 +32,13 @@ struct ConfigOption: Identifiable {
     }
 }
 
-/// Settings editor generated from the PrintConfig option definitions —
-/// the same metadata that drives the desktop parameter tabs.
-struct ConfigEditorView: View {
-    @Environment(\.dismiss) private var dismiss
+/// Settings editor generated from the PrintConfig option definitions — the
+/// same metadata that drives the desktop parameter tabs. Embeddable in a
+/// sidebar (no navigation chrome of its own).
+struct ConfigEditorPanel: View {
+    /// Bump to make the panel re-read values (e.g. after a preset change).
+    let reloadToken: Int
+    var onPresetSaved: () -> Void = {}
 
     @State private var tab = "process"
     @State private var options: [ConfigOption] = []
@@ -59,7 +62,41 @@ struct ConfigEditorView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 10) {
+            Picker("탭", selection: $tab) {
+                ForEach(tabs, id: \.0) { value, label in
+                    Text(label).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("설정 검색", text: $query)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(8)
+            .background(Color.orcaCard, in: RoundedRectangle(cornerRadius: 8))
+
+            Button {
+                showSaveDialog = true
+            } label: {
+                Label("현재 설정을 프리셋으로 저장", systemImage: "square.and.arrow.down")
+                    .font(.callout)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
             List {
                 ForEach(categories, id: \.0) { category, items in
                     Section(category) {
@@ -71,48 +108,30 @@ struct ConfigEditorView: View {
                     }
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
-            .navigationTitle("설정 편집")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("닫기") { dismiss() }
-                }
-                ToolbarItem(placement: .principal) {
-                    Picker("탭", selection: $tab) {
-                        ForEach(tabs, id: \.0) { value, label in
-                            Text(label).tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 360)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showSaveDialog = true
-                    } label: {
-                        Label("프리셋 저장", systemImage: "square.and.arrow.down")
-                    }
-                }
-            }
-            .alert("현재 설정을 프리셋으로 저장", isPresented: $showSaveDialog) {
-                TextField("프리셋 이름", text: $presetName)
-                Button("저장") {
-                    if OrcaSlicerCore.saveCurrentPreset(as: presetName, tab: tab) {
-                        reload()
-                    }
-                }
-                Button("취소", role: .cancel) {}
-            } message: {
-                Text("사용자 프리셋은 다음 실행에도 유지됩니다")
-            }
-            .onChange(of: tab) { _ in reload() }
-            .onAppear { reload() }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
+        .padding([.horizontal, .top], 12)
+        .alert("현재 설정을 프리셋으로 저장", isPresented: $showSaveDialog) {
+            TextField("프리셋 이름", text: $presetName)
+            Button("저장") {
+                if OrcaSlicerCore.saveCurrentPreset(as: presetName, tab: tab) {
+                    reload()
+                    onPresetSaved()
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("사용자 프리셋은 다음 실행에도 유지됩니다")
+        }
+        .onChange(of: tab) { _ in reload() }
+        .onChange(of: reloadToken) { _ in reload() }
+        .onAppear { reload() }
     }
 
     private func reload() {
         options = OrcaSlicerCore.configOptions(forTab: tab).compactMap { ConfigOption(dictionary: $0) }
+        revision += 1
     }
 
     private func commit(option: ConfigOption, newValue: String) {
@@ -141,6 +160,7 @@ private struct ConfigOptionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(option.label)
+                        .font(.callout)
                     if option.isModified {
                         Circle().fill(.orange).frame(width: 8, height: 8)
                     }
@@ -162,8 +182,8 @@ private struct ConfigOptionRow: View {
                     onCommit(option.value == "1" ? "0" : "1")
                 } label: {
                     Image(systemName: option.value == "1" ? "checkmark.square.fill" : "square")
-                        .font(.title2)
-                        .foregroundStyle(option.value == "1" ? Color.accentColor : .secondary)
+                        .font(.title3)
+                        .foregroundStyle(option.value == "1" ? Color.orcaAccent : .secondary)
                 }
                 .buttonStyle(.borderless)
             case "enum":
@@ -182,7 +202,7 @@ private struct ConfigOptionRow: View {
                     .focused($focused)
                     .keyboardType(option.type == "string" ? .default : .numbersAndPunctuation)
                     .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 160)
+                    .frame(maxWidth: 110)
                     .textFieldStyle(.roundedBorder)
                     .onAppear { text = option.value }
                     .onChange(of: option.value) { text = $0 }
