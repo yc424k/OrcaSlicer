@@ -97,6 +97,21 @@ if (SLIC3R_GUI)
     add_subdirectory(slic3r)
 endif()
 
+if (ORCA_CORE_ONLY)
+    # Core-only build (e.g. the iOS port): libslic3r and its dependencies only,
+    # no CLI/GUI executables and none of the packaging/bundling steps below.
+    option(ORCA_CORE_SMOKE_TEST "Build the minimal headless slicing smoke-test executable" OFF)
+    if (ORCA_CORE_SMOKE_TEST)
+        add_executable(orca_core_smoke dev-utils/CoreSmokeTest.cpp)
+        target_link_libraries(orca_core_smoke libslic3r cereal::cereal nanosvg)
+        if (APPLE)
+            # boost::locale pulls iconv on Apple platforms.
+            target_link_libraries(orca_core_smoke "-liconv")
+        endif ()
+    endif ()
+    return()
+endif ()
+
 if(ORCA_TOOLS)
     # OrcaSlicer_profile_validator
     if(APPLE)

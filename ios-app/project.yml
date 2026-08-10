@@ -1,0 +1,49 @@
+# OrcaPad — minimal iPad app around the OrcaSlicer core (Phase 1 of the iPad port).
+# Regenerate the Xcode project with:  cd ios-app && xcodegen generate
+name: OrcaPad
+options:
+  bundleIdPrefix: com.youblue
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  OrcaPad:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - framework: Frameworks/OrcaCore.xcframework
+        embed: false
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_VERSION: "5.9"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge/OrcaPad-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        CLANG_CXX_LIBRARY: libc++
+        # The bridge translation unit compiles against the libslic3r headers.
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/../src"
+          - "$(SRCROOT)/../deps_src"
+          - "$(SRCROOT)/../deps_src/nanosvg"
+          - "$(SRCROOT)/../build/ios/src"
+          - "$(SRCROOT)/../build/ios/src/libslic3r"
+          - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include"
+          - "$(SRCROOT)/../deps/build/ios/OrcaSlicer_dep_ios/usr/local/include/eigen3"
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "ORCA_CORE_ONLY=1"
+          - "USE_TBB=1"
+          - "TBB_USE_CAPTURED_EXCEPTION=0"
+          - "BOOST_ALL_NO_LIB=1"
+        OTHER_LDFLAGS:
+          - "-lz"
+          - "-liconv"
+          - "-framework"
+          - "Foundation"
+          - "-framework"
+          - "ModelIO"

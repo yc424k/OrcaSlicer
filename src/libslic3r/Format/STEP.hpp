@@ -1,11 +1,16 @@
 #ifndef slic3r_Format_STEP_hpp_
 #define slic3r_Format_STEP_hpp_
+// ORCA_CORE_ONLY builds carry no OCCT, so only the OCCT-free declarations
+// below (progress typedefs, StepPreProcessor) are available; the Step loader
+// itself is compiled out together with its GUI/CLI callers.
+#ifndef ORCA_CORE_ONLY
 #include "XCAFDoc_DocumentTool.hxx"
 #include "XCAFApp_Application.hxx"
 #include "XCAFDoc_ShapeTool.hxx"
+#include <Message_ProgressIndicator.hxx>
+#endif
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem.hpp>
-#include <Message_ProgressIndicator.hxx>
 #include <atomic>
 
 namespace fs = boost::filesystem;
@@ -25,6 +30,9 @@ const int LOAD_STEP_STAGE_UNIT_NUM           = 5;
 typedef std::function<void(int load_stage, int current, int total, bool& cancel)> ImportStepProgressFn;
 typedef std::function<void(bool isUtf8)> StepIsUtf8Fn;
 
+#ifdef ORCA_CORE_ONLY
+class Step;
+#else
 struct NamedSolid
 {
     NamedSolid(const TopoDS_Shape& s,
@@ -34,7 +42,9 @@ struct NamedSolid
     const std::string  name;
     int tri_face_cout = 0;
 };
+#endif // !ORCA_CORE_ONLY
 
+#ifndef ORCA_CORE_ONLY
 //BBS: Load an step file into a provided model.
 extern bool load_step(const char *path, Model *model,
                       bool& is_cancel,
@@ -44,6 +54,7 @@ extern bool load_step(const char *path, Model *model,
                       ImportStepProgressFn proFn = nullptr,
                       StepIsUtf8Fn isUtf8Fn = nullptr,
                       long& mesh_face_num = *(new long(-1)));
+#endif
 
 //BBS: Used to detect what kind of encoded type is used in name field of step
 // If is encoded in UTF8, the file don't need to be handled, then return the original path directly.
@@ -70,6 +81,7 @@ private:
     EncodedType m_encode_type = EncodedType::UTF8;
 };
 
+#ifndef ORCA_CORE_ONLY
 class StepProgressIncdicator : public Message_ProgressIndicator
 {
 public:
@@ -118,6 +130,7 @@ private:
     Handle(XCAFDoc_ShapeTool) m_shape_tool;
     std::vector<NamedSolid> m_name_solids;
 };
+#endif // !ORCA_CORE_ONLY
 
 }; // namespace Slic3r
 

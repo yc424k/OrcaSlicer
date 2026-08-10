@@ -129,6 +129,14 @@ option(SLIC3R_PCH               "Use precompiled headers" 1)
 option(SLIC3R_MSVC_COMPILE_PARALLEL "Compile on Visual Studio in parallel" 1)
 option(SLIC3R_MSVC_PDB          "Generate PDB files on MSVC in Release mode" 1)
 option(SLIC3R_ASAN              "Enable ASan on Clang and GCC" 0)
+# Core-only build for platforms without the desktop stack (e.g. the iOS port):
+# builds libslic3r and its in-tree dependencies only — no CLI/GUI executables,
+# no CURL/OpenGL/GLFW/Python, no OCCT (STEP import) and no OpenCV (colored-OBJ
+# import). Implies SLIC3R_GUI=0.
+option(ORCA_CORE_ONLY           "Build only the libslic3r core library" 0)
+if (ORCA_CORE_ONLY)
+    set(SLIC3R_GUI 0)
+endif ()
 
 # Python stubgen module
 option(ORCA_BUILD_PYTHON_STUBGEN_MODULE "Build importable Python module for pybind11-stubgen" ON)
@@ -759,14 +767,14 @@ find_package(TBB REQUIRED)
 # add_definitions(-DTBB_USE_CAPTURED_EXCEPTION=0)
 
 find_package(OpenSSL REQUIRED)
-find_package(CURL REQUIRED)
 find_package(Freetype REQUIRED)
+find_package(ZLIB REQUIRED)
 
+if (NOT ORCA_CORE_ONLY)
+find_package(CURL REQUIRED)
 
 add_library(libcurl INTERFACE)
 target_link_libraries(libcurl INTERFACE CURL::libcurl)
-
-find_package(ZLIB REQUIRED)
 target_link_libraries(libcurl INTERFACE ZLIB::ZLIB)
 
 # Fixing curl's cmake config script bugs
@@ -796,6 +804,7 @@ if (SLIC3R_STATIC AND NOT SLIC3R_STATIC_EXCLUDE_CURL)
         target_link_libraries(libcurl INTERFACE ${OPENSSL_LIBRARIES})
     endif()
 endif()
+endif() # NOT ORCA_CORE_ONLY
 
 ## OPTIONAL packages
 
@@ -817,6 +826,7 @@ endif ()
 
 find_package(PNG REQUIRED)
 
+if (NOT ORCA_CORE_ONLY)
 set(OpenGL_GL_PREFERENCE "LEGACY")
 find_package(OpenGL REQUIRED)
 
@@ -825,6 +835,7 @@ if(APPLE AND CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
 endif()
 
 find_package(glfw3 REQUIRED)
+endif() # NOT ORCA_CORE_ONLY
 
 # Find the Cereal serialization library
 find_package(cereal REQUIRED)
@@ -878,6 +889,7 @@ endforeach()
 find_package(NLopt 1.4 REQUIRED)
 
 # Use bundled Python from deps instead of system Python
+if (NOT ORCA_CORE_ONLY)
 set(_bundled_python_version "3.12.13")
 set(_bundled_python_abi "312")
 string(REGEX REPLACE "^([0-9]+\\.[0-9]+)\\..*$" "\\1" _bundled_python_version_short "${_bundled_python_version}")
@@ -956,6 +968,7 @@ add_library(pybind11_embed INTERFACE)
 target_link_libraries(pybind11_embed INTERFACE pybind11_headers Python3::Python)
 target_compile_definitions(pybind11_embed INTERFACE PYBIND11_SIMPLE_GIL_MANAGEMENT)
 add_library(pybind11::embed ALIAS pybind11_embed)
+endif() # NOT ORCA_CORE_ONLY
 
 
 if(SLIC3R_STATIC)

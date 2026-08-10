@@ -37,7 +37,10 @@
 	#endif
 	#ifdef __APPLE__
 		#include <mach/mach.h>
-		#include <libproc.h>
+		#include <TargetConditionals.h>
+		#if !TARGET_OS_IPHONE
+			#include <libproc.h> // not available on iOS
+		#endif
 	#endif
 	#ifdef __linux__
 		#include <sys/stat.h>
@@ -1325,6 +1328,10 @@ std::string get_process_name(int pid)
 	while (auto q = strchr(p + 1, '\\'))
 		p = q;
 	return decode_path(p);
+#elif defined __APPLE__ && TARGET_OS_IPHONE
+	// iOS sandboxing forbids inspecting other processes; only the own name is known.
+	if (pid != 0 && pid != ::getpid()) return {};
+	return getprogname();
 #elif defined __APPLE__
 	char pathbuf[PROC_PIDPATHINFO_MAXSIZE] = { 0 };
 	if (pid == 0) pid = ::getpid();

@@ -488,6 +488,21 @@ if (APPLE)
         )
 endif ()
 
+if (ORCA_CORE_ONLY)
+    # No OCCT (STEP import) and no OpenCV (colored-OBJ quantization) in
+    # core-only builds; neither has callers inside libslic3r itself.
+    list(REMOVE_ITEM lisbslic3r_sources
+        Format/STEP.cpp
+        Format/STEP.hpp
+        Format/svg.cpp
+        Format/svg.hpp
+        Shape/TextShape.cpp
+        Shape/TextShape.hpp
+        ObjColorUtils.cpp
+        ObjColorUtils.hpp
+    )
+endif ()
+
 add_library(libslic3r STATIC ${lisbslic3r_sources}
     "${CMAKE_CURRENT_BINARY_DIR}/libslic3r_version.h"
     ${OpenVDBUtils_SOURCES})
@@ -504,7 +519,9 @@ cmake_policy(SET CMP0011 NEW)
 # can't reach it; the default opts its Boost lookup into BoostConfig (CMP0167).
 set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
 find_package(CGAL REQUIRED)
-find_package(OpenCV REQUIRED core)
+if (NOT ORCA_CORE_ONLY)
+    find_package(OpenCV REQUIRED core)
+endif ()
 unset(CMAKE_POLICY_DEFAULT_CMP0167)
 cmake_policy(POP)
 
@@ -542,19 +559,27 @@ endif ()
 encoding_check(libslic3r)
 
 target_compile_definitions(libslic3r PUBLIC -DUSE_TBB -DTBB_USE_CAPTURED_EXCEPTION=0)
+if (ORCA_CORE_ONLY)
+    # PUBLIC: consumers of libslic3r headers must see the same gated view
+    # (e.g. Format/STEP.hpp without its OCCT parts).
+    target_compile_definitions(libslic3r PUBLIC ORCA_CORE_ONLY)
+endif ()
 if (USE_SLIC3R_CONSOLE_LOG)
     target_compile_definitions(libslic3r PRIVATE $<$<CONFIG:RelWithDebInfo>:SLIC3R_CONSOLE_LOG>)
 endif()
 target_include_directories(libslic3r PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(libslic3r SYSTEM PUBLIC ${EXPAT_INCLUDE_DIRS})
 
+find_package(JPEG REQUIRED)
+find_package(Draco REQUIRED)
+
+if (ORCA_CORE_ONLY)
+    set(OCCT_LIBS "")
+else ()
 # Find the OCCT and related libraries
 set(OpenCASCADE_DIR "${CMAKE_PREFIX_PATH}/lib/cmake/occt")
 find_package(OpenCASCADE REQUIRED)
 target_include_directories(libslic3r SYSTEM PUBLIC ${OpenCASCADE_INCLUDE_DIR})
-
-find_package(JPEG REQUIRED)
-find_package(Draco REQUIRED)
 
 set(OCCT_LIBS
     TKXDESTEP
@@ -584,6 +609,13 @@ set(OCCT_LIBS
     TKMath
     TKernel
 )
+endif () # NOT ORCA_CORE_ONLY
+
+if (NOT ORCA_CORE_ONLY)
+    set(_orca_opencv_libs opencv_world)
+else ()
+    set(_orca_opencv_libs "")
+endif ()
 
 target_link_libraries(libslic3r
     PUBLIC
@@ -592,7 +624,7 @@ target_link_libraries(libslic3r
         libigl
         libnest2d
         miniz
-        opencv_world
+        ${_orca_opencv_libs}
     PRIVATE
         ${CMAKE_DL_LIBS}
         ${EXPAT_LIBRARIES}
